@@ -5,17 +5,17 @@
 This is a new, independent Windows project for hand-swept red laser-line 3D
 scanning. It does not use or modify the separate photogrammetry project.
 
-## Recovery checkpoint — 2026-10-12
+## Recovery checkpoint — 2026-10-13
 
 - **Last user-verified baseline:** partial physical test of Windows candidate
   0.1.0. The camera opened, lens/corner setup completed, and a point cloud began
   forming. This is not a complete hardware or accuracy verification.
-- **Latest candidate:** 0.2.0, **CANDIDATE / SOFTWARE TESTED / HARDWARE
-  UNVERIFIED**. It must not replace the user-verified baseline until the user
-  physically tests it.
-- **Current task:** **DONE for software delivery.** The laser-tuning,
-  camera-guidance, scan-state, dark-preview, camera-reconnect safety, and
-  support-diagnostics update requested after the 0.1.0 field test is packaged.
+- **Latest candidate:** 0.2.0, **CANDIDATE / SOFTWARE TESTED / USER TESTED / NOT
+  VERIFIED**. Two physical scans produced usable data but exposed issues that
+  require a corrective candidate.
+- **Current task:** field-test analysis and corrective planning are complete.
+  Implementation is pending; the sanitized evidence and phased plan are in
+  `docs/FIELD_TEST_2026-10-13.md`.
 - **Completed plan:** stale calibration/background data is invalidated across
   camera reconnects; old camera/scan callbacks are generation-gated; exported
   diagnostics redact private local path prefixes; targeted/full tests, source
@@ -27,7 +27,8 @@ scanning. It does not use or modify the separate photogrammetry project.
 - **Evidence already received:** screenshots of the earlier packaged Qt/OpenCV
   startup failures and the user's 0.1.0 hands-on report covering calibration,
   tuning confusion, laser bloom/noise, scan controls, dark preview, and object
-  movement questions.
+  movement questions; two 0.2.0 diagnostic bundles, two PLY/OBJ/STL export sets,
+  and legacy checkerboard/ArUco target files from the 2026-10-13 field test.
 - **Interrupted operation recovered:** the second 0.2.0 package build completed
   successfully, but its versioned ZIP was not regenerated and its hashes were
   not recorded. Audit then found the three targeted safety/privacy corrections
@@ -40,10 +41,10 @@ scanning. It does not use or modify the separate photogrammetry project.
 - **Published 0.2.0 source checkpoint:** commit
   `f2e4f451ab0a08423b0c3ebda441aa36ecca9cf1`. This is the exact maintainable
   source, tests, documentation, and printable set used for this candidate.
-- **Exact next action:** the user should extract the 0.2.0 ZIP into a fresh
-  folder and follow **Test This Version — Windows candidate 0.2.0** in
-  `docs/TESTING.md`, then upload the diagnostics ZIP from the first failing or
-  questionable run.
+- **Exact next action:** implement Phases 1 through 3 in
+  `docs/FIELD_TEST_2026-10-13.md`: decisive camera/geometry diagnostics,
+  precise zoom/pan/landmark interaction, and ROI/reference-readiness gating.
+  Build a new candidate before requesting another physical scan.
 
 ## Current implementation: 0.2.0 tuning and diagnostics baseline
 
@@ -160,9 +161,11 @@ as hardware verification.
 
 ## Next validation gate
 
-1. Perform the flat-card and known-block hardware tests in `docs/TESTING.md`.
-2. Tune thresholds from recorded physical evidence and record the first Windows
-   hardware-verified baseline.
+1. Complete the corrective implementation and automated regression tests.
+2. Build and software-test a new candidate.
+3. Repeat controlled flat-card, known-block, and object scans with locked camera
+   controls and the new readiness evidence.
+4. Record a Windows hardware-verified baseline only if those checks pass.
 
 ## Planned after physical validation
 
