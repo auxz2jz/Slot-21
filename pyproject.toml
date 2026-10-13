@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laserline3d"
+version = "0.2.0"
+description = "Desktop red laser-line 3D scanner for a fixed USB camera"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "LaserLine 3D Project" }]
+dependencies = [
+  "numpy>=2.0,<3",
+  "opencv-python-headless>=4.10,<5",
+  "PySide6-Essentials>=6.8,<7",
+  "scipy>=1.14,<2",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "pytest-qt>=4.4,<5",
+]
+build = [
+  "pyinstaller>=6.11,<7",
+  "pyinstaller-hooks-contrib>=2025.0",
+]
+
+[project.scripts]
+laserline3d = "laserline3d.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["laserline3d"]
+omit = ["src/laserline3d/app.py", "src/laserline3d/ui/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 75
