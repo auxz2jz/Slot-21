@@ -37,6 +37,9 @@ scanning. It does not use or modify the separate photogrammetry project.
   printable calibration PDFs are stored there. Generated environments, build
   folders, temporary data, and Windows packages remain outside normal Git
   history; their identities and hashes are recorded in this checkpoint.
+- **Published 0.2.0 source checkpoint:** commit
+  `f2e4f451ab0a08423b0c3ebda441aa36ecca9cf1`. This is the exact maintainable
+  source, tests, documentation, and printable set used for this candidate.
 - **Exact next action:** the user should extract the 0.2.0 ZIP into a fresh
   folder and follow **Test This Version — Windows candidate 0.2.0** in
   `docs/TESTING.md`, then upload the diagnostics ZIP from the first failing or
@@ -118,9 +121,9 @@ Implemented:
   integrity hash is stored in the adjacent `.zip.sha256` sidecar so the archive
   can contain this final checkpoint without a self-referential hash.
 
-This baseline verifies software with deterministic synthetic geometry. Git
-commit identity is the `main` branch revision in the durable source repository;
-the publication report records the exact pushed revision.
+This baseline verifies software with deterministic synthetic geometry. Its
+exact maintainable source checkpoint is commit
+`f2e4f451ab0a08423b0c3ebda441aa36ecca9cf1` in the durable source repository.
 
 **WINDOWS HARDWARE LAST VERIFIED BASELINE:** Partial user field test of the
 previous 0.1.0 build: the Logitech camera opened, lens/corner setup completed,
