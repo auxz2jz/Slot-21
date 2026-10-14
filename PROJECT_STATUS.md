@@ -7,18 +7,17 @@ scanning. It does not use or modify the separate photogrammetry project.
 
 ## Recovery checkpoint — 2026-10-13
 
-- **Latest candidate:** 0.3.0, **CANDIDATE / SOFTWARE TESTED / HARDWARE
-  UNVERIFIED**. Do not describe a build, launch, synthetic test, or earlier
-  physical scan as verification of this candidate.
-- **Last user field evidence:** two 0.2.0 physical scans produced usable data
-  but exposed camera-evidence, corner interaction, reference-support, coverage,
-  and log-retention problems. Version 0.2.0 remains **USER TESTED / NOT
-  VERIFIED**. Sanitized findings are in `docs/FIELD_TEST_2026-10-13.md`.
-- **Current task:** corrective implementation, automated tests, source
-  self-test, Windows build, packaged Qt smoke test, packaged scan/export
-  self-test, release ZIP creation, and ZIP integrity validation are complete.
-  The exact next action is the guided 0.3.0 physical retest in
-  `docs/TESTING.md`.
+- **Latest candidate:** 0.3.0, **USER TESTED / NOT VERIFIED**. Two physical
+  scans produced acceptable geometry and cleaner local point spacing, but both
+  stored all-black RGB. This is useful field evidence, not verification.
+- **Last user field evidence:** one 0.2.0 comparison scan and two 0.3.0 scans
+  were reviewed together. The geometry remained present in all exports. The
+  decisive color finding and sanitized metrics are in
+  `docs/FIELD_TEST_2026-10-13.md`.
+- **Current task:** comparison and diagnosis are complete. No code or build was
+  changed. The next proposed action, only after approval, is to separate the
+  laser-detection background from the surface-color reference and add a neutral
+  fallback for an unusably dark color reference.
 - **Durable repository:** `https://github.com/auxz2jz/Slot-21`, branch `main`.
   The final 0.3.0 source checkpoint commit is recorded below after publication.
 - **Private evidence:** raw camera images, diagnostic archives, calibrations,
@@ -74,6 +73,33 @@ scanning. It does not use or modify the separate photogrammetry project.
 
 The geometry safety cutoffs were not weakened: minimum triangulation angle is
 still 5 degrees and the plane-support guard is still 0.003.
+
+## Physical 0.3.0 comparison — 2026-10-13 evening
+
+The two 0.3.0 PLY exports contain valid coordinates but RGB `(0, 0, 0)` for
+every point. Their saved laser-off backgrounds are also exactly black. The
+reconstructor intentionally samples point RGB from the laser-off background to
+avoid painting the red stripe onto the object, so the black exports follow
+directly from that color source. The 0.2.0 comparison background averaged about
+BGR 83/83/81 and its exported point colors had median luminance about 155.
+
+Exposure and white balance are not the primary cause. The 0.2.0 scan reported
+exposure -9 yet retained visible gray colors; both 0.3.0 scans reported exposure
+-7. The 0.3.0 tests reported different white-balance states (automatic at 4600
+K versus manual/zero-or-unsupported at 2800 K), but both selected an all-zero
+background as the RGB source. White balance cannot recover zero-valued pixels.
+The relevant background-color sampling and point-preview lifting logic did not
+change between the 0.2.0 and 0.3.0 source checkpoints.
+
+Geometry evidence supports keeping the 0.3.0 detection work. Accepted-frame
+rates were approximately 68.0% for 0.2.0, 75.4% for the first 0.3.0 run, and
+88.0% for the second 0.3.0 run. Exported point counts were 169,315, 286,308,
+and 273,913 respectively. The percentage of points whose nearest neighbour was
+farther than 1 mm fell from 6.95% to 4.14% and 5.03%, consistent with the
+reported cleaner clouds. Absolute dimensional accuracy cannot be established
+without ground truth, and the 0.3.0 corner-pose reprojection errors (3.79 px and
+3.43 px) were worse than the 0.2.0 comparison (2.86 px), so calibration should
+be tightened before claiming sharper or more accurate geometry.
 
 ## Software-tested 0.3.0 candidate baseline
 

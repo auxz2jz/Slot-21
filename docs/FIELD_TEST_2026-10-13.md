@@ -213,4 +213,82 @@ plane-support guard were not weakened. Draggable existing landmarks, a
 magnified crosshair, keyboard nudging, coverage heat maps, ArUco automation,
 full-field object triangulation, background point editing, and turntable fusion
 remain later work. The 0.3.0 candidate is software tested only until the guided
-physical retest in `TESTING.md` passes.
+physical retest in `TESTING.md` passes. At that implementation checkpoint no
+0.3.0 field evidence existed; the comparison below updates the state to **USER
+TESTED / NOT VERIFIED**.
+
+## Physical comparison update — 0.2.0 versus 0.3.0
+
+Three physical export sets were compared read-only: one 0.2.0 run and two
+0.3.0 runs. The original diagnostics and PLY/OBJ/STL files were not modified.
+
+| Evidence | 0.2.0 comparison | 0.3.0 run 1 | 0.3.0 run 2 |
+|---|---:|---:|---:|
+| Reported exposure | -9 | -7 | -7 |
+| Reported auto-WB / temperature | 0 / 4600 K | 1 / 4600 K | 0 / 2800 K |
+| Laser-off background mean BGR | 82.84 / 83.19 / 81.05 | 0 / 0 / 0 | 0 / 0 / 0 |
+| Exported RGB | median luminance 155; range 41–207 | all points 0 / 0 / 0 | all points 0 / 0 / 0 |
+| Accepted / rejected frames | 1,621 / 764 | 1,993 / 651 | 1,604 / 218 |
+| Accepted-frame rate | 68.0% | 75.4% | 88.0% |
+| Exported points / triangles | 169,315 / 225,754 | 286,308 / 238,697 | 273,913 / 228,322 |
+| Median plane RMS | 0.236 mm | 0.251 mm | 0.198 mm |
+| Median triangulation angle | 21.6° | 21.1° | 13.7° |
+| Corner-pose reprojection error | 2.86 px | 3.79 px | 3.43 px |
+| Nearest-neighbour distance p95 | 1.026 mm | 0.986 mm | 1.001 mm |
+| Points with nearest neighbour >1 mm | 6.95% | 4.14% | 5.03% |
+
+### Confirmed cause of the black models
+
+This is not a geometry failure and is not merely a viewer illusion. Both 0.3.0
+PLY files store RGB `(0, 0, 0)` for 100% of their points; their OBJ vertex
+colors originate from the same cloud. STL carries no color. Both diagnostic
+bundles contain an exactly black laser-off background, although their current
+camera frames are not black. The reconstruction code uses the laser-off
+background as the point-color source so the live red stripe is not baked into
+the surface. Consequently an all-black detection background creates all-black
+saved point colors.
+
+The camera did respond to white balance: the two current-frame channel means
+differ. It did not affect the saved model because both selected background
+images were already zero in every channel. Exposure is not the primary cause
+either: the visible 0.2.0 model used a darker reported exposure (-9) but an
+illuminated background image. The relevant color sampling and high-contrast
+preview code is unchanged between the inspected 0.2.0 and 0.3.0 checkpoints.
+No preview-mode change was recorded in either 0.3.0 session.
+
+### Geometry and reflection findings
+
+- The 0.3.0 runs accepted a larger fraction of frames and produced more points.
+  Their local nearest-neighbour statistics are at least as clean as 0.2.0 and
+  contain fewer >1 mm local gaps, consistent with the user's report of fewer
+  stray dots.
+- Run 2 had the strongest plane fit and fewest rejected frames, although its
+  lower median triangulation angle provides less depth leverage than the other
+  two runs. Keep the 5-degree safety cutoff and 0.003 support guard unchanged.
+- Diagnostics observed about 908 and 901 candidate laser pixels per frame
+  outside the green ROI in the two 0.3.0 runs. Those observations confirm that
+  reflections/background responses still exist, but the current reconstruction
+  triangulates only the object segment inside the ROI. The evidence does not
+  support attributing a particular exported point to a board reflection.
+- The same lens calibration was used, but the 0.3.0 corner-pose residuals were
+  higher. Without a dimensioned ground-truth object, absolute accuracy and the
+  user's perceived corner sharpness cannot be proven numerically. Visible gray
+  variation in 0.2.0 also made surface detail easier to see than all-black RGB.
+
+### Recommended correction — not yet implemented
+
+1. Keep the 0.3.0 laser detection, ROI filtering, evidence collection, and
+   geometry safety thresholds.
+2. Separate the **laser-off detection background** from a **surface-color
+   reference**. The dark image can remain valid for subtraction, while a second
+   laser-off image with useful illumination supplies RGB after geometry capture.
+3. Reject or warn on an unusable color reference (for example, all pixels near
+   black). If no usable color image exists, assign an explicit neutral gray for
+   review/export rather than silently writing black RGB.
+4. Make neutral/high-contrast geometry shading explicit on both Scan and Review
+   pages, log the active mode at finish/export, and offer measured versus neutral
+   color export without changing coordinates.
+5. Repeat the corner marking until reprojection error is preferably 2 px or
+   lower, then run a controlled A/B scan with camera, object, ROI, lighting, and
+   sweep held fixed. Capture surface color with the laser off only after the
+   geometry sweep, without moving the camera or object.
