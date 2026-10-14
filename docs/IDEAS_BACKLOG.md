@@ -100,3 +100,39 @@ Suggested simple first-stage workflow:
 6. This display feature is conceptually separate from increasing the actual point-cloud geometric density (item B) and should not be sold as higher-resolution **geometry**.
 
 **Implementation remains unapproved.** Document as a future visual feature and avoid expanding an already-running Codex task.
+
+### G. Automatic background/corner recognition and moving-camera scans
+
+**User proposal, 2026-10-13 — FUTURE ONLY, not authorized for implementation.** The user would like to replace manually clicking six reference-corner points with automatic identification of the reference background. In a later stage, they want to move the camera slightly around a stationary object while the software still knows where the fixed reference background and object are, enabling additional viewing angles and eventually fusion of multiple overlapping object scans into the same coordinate system.
+
+**Related existing plan:** PROJECT_STATUS.md and docs/FIELD_TEST_2026-10-13.md already defer optional ArUco-assisted corner calibration and multi-view alignment. This backlog item extends the idea into continuous, independently measured camera tracking; do not re-implement existing or currently active work.
+
+#### Phase 1 — Automatically locate the fixed V-corner, leaving camera fixed
+
+- Create a calibrated fiducial board made of **multiple uniquely identified ArUco or AprilTag markers** at accurately measured, fixed locations around the left and right reference wings, near their perimeter, leaving generous uninterrupted matte-white areas for the red laser stripe on *both* walls. Marker ink across the witness line would interfere with laser detection.
+- From a checkerboard-calibrated camera and known marker geometry, detect marker corners and solve the fixed reference fixture's 6-DoF camera-relative pose (e.g. multi-marker PnP / robust joint pose refinement). This replaces manual six-point picking, not the separate lens-intrinsic calibration. An ArUco board in OpenCV can represent known markers in a 2D **or 3D** layout.
+- Check tag identities, physical dimensions, corner reprojection error, known wall widths/angle and scale, spatial distribution and minimum visibility; reject ambiguous/far-too-few/partly occluded/wrongly measured detections. Prefer markers distributed across **both walls**; one isolated marker is much less robust. Keep manual six-point method as a fallback.
+- A markerless alternative could detect the seam, wall edges, and right-angle planes in bright, feature-rich scenes, but a plain white V alone often supplies ambiguous edges. Use markers as the primary practical solution rather than claiming markerless pose accuracy prematurely.
+- Test actual marker detection against the user's laser/lighting/exposure workflow. Room-lights-OFF and low-exposure frames may make printed black/white tags invisible; consider a separate lit pose-acquisition frame or controlled illumination that doesn't corrupt stripe detection. Do not assume IR works on all USB cameras.
+
+#### Phase 2 — Reacquire pose when the camera is moved, initially between scans
+
+- Treat the background/fixture and object as **stationary in a shared world coordinate system**; assign every marker/fixture feature a known 3D world position.
+- For each new camera position, detect sufficient known markers, solve camera pose in fixture/world coordinates with the original camera intrinsics, and reproject the reference-wall polygons, object ROI, and any depth/occlusion masks into the new camera view. **A fixed 2D green ROI cannot be reused unchanged after camera motion**.
+- Recompute the laser plane per accepted frame using wall-stripe intersections at the new pose; intersect object-stripe camera rays with that plane and transform resulting points into the fixture/world coordinate system. Stationary object points from different camera views can then share a coordinate system; estimate residual errors and verify overlap before fusion.
+- Important limitation: simply tracking the tags locates the **camera**, not the freely hand-swept laser plane. Both reference wall laser segments (or a separately calibrated alternative to determine laser plane) are still necessary for trustworthy triangulation. Some side angles may obstruct one/both reference wings, requiring a different fixture/laser strategy rather than relaxing validation.
+- Suggested initial UX: **Finish side → reposition camera slightly → reacquire markers/verify geometry → scan next side → align and preview overlap**. This staged mode is much safer to validate than freehand simultaneous camera-and-laser movement.
+
+#### Phase 3 — Continuous moving-camera tracking, only after Phase 2 validates
+
+- Solve and update camera pose for every frame or a reliably timestamped tracking sequence, and align profiles into fixture/world coordinates, with detection confidence, landmark residuals, drift/pose jumps, missing tags, and motion blur recorded in diagnostics.
+- When markers are temporarily blocked, optionally investigate visual feature tracking/SLAM plus periodic fiducial relocalization, while refusing low-confidence geometry instead of pretending the camera is still localized.
+- Static laser-off image subtraction will no longer match a moving camera: design pose-aware scene/reference subtraction or updated matched-pose backgrounds and re-validate the dark-scanning workflow. Also handle any light changes for fiducial detection independently of surface-color acquisition.
+- Keep the object stationary until a separate turntable/object-motion model is implemented; do not conflate moving **camera** with moving **object**. Small camera shifts are a sensible first target. Multi-side coverage requires overlap and visibility and can still be constrained by the V-corner, shadows, marker occlusion, and both-wall reference visibility.
+- The resulting registered multiple camera viewpoints could later be used for higher-coverage photo projection / texture capture as well as geometry, but avoid inventing hidden surfaces.
+
+#### Explicit implementation boundaries
+
+- Neither automatic corner recognition nor moving-camera 3D alignment is currently verified; the present scanner assumes a stationary camera during scanning.
+- Do not claim that placing tags makes moving-camera geometry automatically correct. Document world-coordinate transforms, reprojection/scale errors, stripe support, visibility, timestamp consistency, and quantitative known-object validation.
+- Keep existing safety/rejection thresholds, manual calibration fallback, privacy rules, diagnostic recovery, and token-use discipline. Implement only after the user expressly selects this future phase.
