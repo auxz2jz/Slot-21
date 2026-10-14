@@ -64,3 +64,39 @@ Current PROJECT_STATUS.md already proposes this correction following the 0.3.0 f
 - Resume using PROJECT_STATUS.md plus the precise current task; read this backlog only when planning future improvements. Do not reread the entire repository or treat ideas as mandatory work.
 - Scope new work narrowly, compare relevant files, retain diagnostics, and test the changed behavior. Preserve camera/geometry safety gates and previously verified baselines.
 - Record decisions, implementation status, and exact next action in PROJECT_STATUS.md after an approved milestone. Avoid claiming that planned changes are already built or hardware-verified.
+
+### E. Per-test diagnostic and artifact bundles / repeated independent runs
+
+**User request, 2026-10-13:** The user wants one easy-to-upload diagnostic ZIP per complete test run that bundles *all relevant 3D artifacts together* (PLY point cloud, OBJ and STL meshes, their matching JSON sidecars, scan/project data, settings, diagnostics, and optional images). The user wants to complete and export one run, then start a completely new run and export a separate, independent ZIP, without having to close/reopen the application or manually assemble files. The user previously discussed this with Codex; **first verify what Codex may already have implemented** before doing any work. This is a proposal only.
+
+**Current verified 0.3.0 behavior (source checked 2026-10-13):**
+- The app already exports a diagnostic support ZIP containing a manifest, a cumulative application-session JSONL log, settings/scan metadata, and optional user-approved current camera/background images.
+- Saved PLY, OBJ, STL files, their JSON sidecars, and point clouds are not automatically included. Source limits for the current small *support* bundle are eight optional attachments, 16 MiB each, 32 MiB total attachments, and 42 MiB total ZIP; blindly routing complete scan sets through that mechanism would omit files.
+- An application launch has a session UUID; scanning has a separate operation UUID. Re-exporting a support ZIP within the same application session can duplicate much earlier-session diagnostic history. A per-test **run** boundary is distinct from session and scan/pause/resume boundaries.
+
+**Desired future design — one test run, one complete evidence package:**
+
+1. Provide explicit **Start New Test Run**, **Finish Run**, and **Export Complete Run ZIP** actions (or equivalent wizard) with a clearly displayed run number/unique ID. The user can scan, pause/resume, review, export, and save all files for that one run.
+2. On finishing/exporting a run, create a single self-contained ZIP with run-scoped diagnostics JSONL, manifest and machine-readable summary; laser settings, captured/read-back camera controls, lens/corner calibration metadata, ROI, background diagnostics; all actual outputs made in that run (PLY, OBJ, STL, JSON sidecars, optional project file and original/filtered scan); and optional user-approved photographs/backgrounds or other evidence. Put artifacts in named folders and ensure each sidecar clearly matches its source scan. Mark absent/unavailable outputs honestly; do not silently invent or overwrite missing exports.
+3. Assign distinct **application_session_id**, **test_run_id**, and **scan_operation_id**. Start/pause/resume of the *same scan* stays in the same run; "Start New Test Run" starts fresh run-specific diagnostics/scan data while retaining reusable unchanged camera calibration if permitted. New run should not inherit old point clouds or old log entries by accident.
+4. Exporting a ZIP should snapshot and seal the completed run; exporting it twice should not combine unrelated runs. Starting a new run should not alter or discard the previous run's files. Preserve crash recovery and incomplete runs where feasible. A clear "saved/not saved" status and safe confirmation before discarding work is necessary.
+5. Keep both a compact privacy-minimized **Support Diagnostics ZIP** and an explicitly opted-in **Complete Test Run ZIP**, or a clear option for full scans/photos. Full exports can be much larger and need appropriate size checks/streaming, integrity hashes and/or split-package handling—not removal of existing bounded-log and privacy protections.
+6. Include a manifest listing file paths, byte sizes, SHA-256 checksums, relationships among PLY/OBJ/STL/JSON, application/build version, run start/end, calibration/lighting/camera setting changes, raw/acquired/filtered/display counts, diagnostics status, and any intentionally omitted files. Preserve each original file unchanged; copy into archive, do not relocate it.
+7. Allow back-to-back Run 1 / Run 2 / Run 3 test comparisons (e.g. different exposure or white balance) and keep them easily distinguishable by filename, date/time, and run ID. Consider a compact per-run summary/comparison view later.
+
+**Discussion priority:** This is an especially useful workflow idea because the user routinely conducts multiple controlled scanner tests and currently must upload diagnostics plus numerous separate exports/JSON files. However, do **not** start it ahead of the user's current approved Codex task.
+
+### F. Immediate visual photo overlay on the reconstructed object (refinement of item C)
+
+The user's near-term goal is **seeing** the reconstructed object in the app with its real photographed appearance, as if the photo were wrapped over the point cloud/mesh. This is not necessarily a request for fully production-ready UV unwrapping or exports right away.
+
+Suggested simple first-stage workflow:
+
+1. With object/camera/fixture stationary, finish geometric laser capture under whatever lighting yields reliable triangulation.
+2. Turn the laser OFF, turn room lighting ON, and explicitly take a **Color/Texture Photo**; keep it separate from the laser-off background used for subtraction, and track changes to camera appearance settings. Avoid focus, zoom, resolution, lens, camera position, or object position changes that would break alignment.
+3. Using the saved camera calibration and object geometry, back-project each visible point/mesh surface into the color photo, sample RGB, and show an immediate toggle between (a) neutral-shaded 3D geometry and (b) photo-colored 3D view. The original photo includes background, but the software should **not** map background onto the model: use visible geometry, visibility/depth checks and, where needed, an object mask to avoid bleeding.
+4. Initially allow coloring point-cloud points and displaying a photo-projected mesh. Later consider persistent mesh UV/texture export (OBJ+MTL+PNG or GLB/glTF); STL itself cannot store colors/textures.
+5. A single camera photo only covers visible front-facing surfaces and can stretch/bleed at silhouettes, holes, and hidden regions; do not invent rear-surface colors. Use neutral/untextured rendering for unobserved parts.
+6. This display feature is conceptually separate from increasing the actual point-cloud geometric density (item B) and should not be sold as higher-resolution **geometry**.
+
+**Implementation remains unapproved.** Document as a future visual feature and avoid expanding an already-running Codex task.
