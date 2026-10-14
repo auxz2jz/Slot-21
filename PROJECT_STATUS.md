@@ -5,6 +5,12 @@
 This is an independent Windows project for hand-swept red laser-line 3D
 scanning. It does not use or modify the separate photogrammetry project.
 
+## Discussion backlog (not an active task)
+
+Future feature ideas and user scan observations are recorded in
+[docs/IDEAS_BACKLOG.md](docs/IDEAS_BACKLOG.md). These notes are not authorization
+to implement new work. Finish the current approved task before considering them.
+
 ## Recovery checkpoint — 2026-10-13
 
 - **Latest candidate:** 0.3.0, **USER TESTED / NOT VERIFIED**. Two physical
