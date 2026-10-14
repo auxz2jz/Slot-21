@@ -2,7 +2,7 @@ import numpy as np
 
 import laserline3d.reconstruction as reconstruction
 from laserline3d.geometry import PlaneFit, PlaneFitEvidence
-from laserline3d.models import LaserSettings, ScanSettings
+from laserline3d.models import SCAN_DENSITY_PRESETS, LaserSettings, ScanSettings
 from laserline3d.reconstruction import FrameReconstructor, ScanAccumulator
 from laserline3d.synthetic import make_synthetic_rig, render_laser_frame
 
@@ -23,6 +23,16 @@ def make_reconstructor():
         voxel_size_mm=1.0,
     )
     return rig, FrameReconstructor(rig.camera, rig.corner, laser, scan), scan
+
+
+def test_scan_density_presets_are_conservative_and_keep_capture_interval() -> None:
+    assert [preset.key for preset in SCAN_DENSITY_PRESETS] == ["standard", "fine"]
+    standard = ScanSettings.from_density_preset("standard")
+    fine = ScanSettings.from_density_preset("fine")
+    assert standard.voxel_size_mm == 0.75
+    assert fine.voxel_size_mm == 0.50
+    assert standard.capture_interval_ms == fine.capture_interval_ms == 80
+    assert fine.max_points == standard.max_points
 
 
 def test_synthetic_sweep_recovers_known_depth() -> None:

@@ -50,19 +50,23 @@ the object in every accepted frame.
 
 ## Install and run from source
 
-A software-tested Windows 0.3.0 **corrective candidate** is available at
-`dist/LaserLine3D_0.3.0/LaserLine3D.exe`, with the complete release ZIP in
-`output/windows/LaserLine3D_Corrective_Diagnostics_0.3.0_2026-10-13.zip`. Keep the
+A software-tested Windows 0.4.0 **candidate** is published at
+`dist/LaserLine3D_0.4.0/LaserLine3D.exe`. Keep the
 complete `LaserLine3D` folder together; the executable depends on the adjacent
 `_internal` files. `run_scanner.bat` uses this packaged copy when it is present
 and falls back to the source environment only when no package exists.
+The clean distributable archive is
+`output/windows/LaserLine3D_Windows_0.4.0_2026-10-14.zip`; extract it into a new
+folder rather than merging it over an older `_internal` directory.
 
-Version 0.3.0 responds to the first two 0.2.0 field scans. It adds anchored
-corner-image zoom and click-versus-drag panning, a warned scan-readiness gate,
-specific triangulation failure codes, inside/outside-ROI evidence, automatic
-camera-property snapshots, privacy-safe image statistics, an eight-MiB bounded
-session log, and a no-line scan watchdog. It is software tested but remains
-hardware unverified until the guided retest passes.
+Version 0.4.0 adds isolated physical-test runs and a final validated ZIP that
+contains run-only diagnostics, raw and reviewed PLY clouds, OBJ, STL, matching
+JSON sidecars, calibration, an editable `.llscan` project, settings, and
+SHA-256 hashes. Camera/background images remain opt-in. Standard (0.75 mm) and
+Fine (0.50 mm) voxel-reduction choices increase retained point density without
+claiming extra camera detail or dimensional accuracy; 10k/50k preview choices
+change only the display. Pressing Finish twice now preserves cleanup and mesh
+results. The compact troubleshooting ZIP remains separate and unchanged.
 
 If an older package reports `DLL load failed while importing QtCore`, discard
 that entire old package folder and use the newly built folder. Do not copy only
@@ -89,36 +93,42 @@ Run the hardware-independent verification suite with:
 
 ## Guided workflow
 
-1. **Camera** – select the Logitech camera, choose a resolution, lock camera
+1. **Test run** – the app starts an isolated run automatically. Press **Start
+   new test run** before each additional controlled test; this clears scan data
+   while keeping reusable calibration and the current background.
+2. **Camera** – select the Logitech camera, choose a resolution, lock camera
    settings if the driver allows it, and do not change them after calibration.
-2. **Camera lens calibration** – use the printed checkerboard in at least 12
+3. **Camera lens calibration** – use the printed checkerboard in at least 12
    varied positions, distances, and tilts. Run calibration and save it.
-3. **Empty-corner setup** – remove the object, turn the laser off, enter the
+4. **Empty-corner setup** – remove the object, turn the laser off, enter the
    measured V dimensions, freeze a clear image, and click the six prompted
    marks. The wheel zooms at the pointer; a short left-click marks, while a
    left/right/middle drag pans without adding a point. Then solve the pose.
-4. **Object area** – place the object without moving the camera or V. Click
+5. **Object area** – place the object without moving the camera or V. Click
    **Capture object view for green box**, then drag a tight rectangle around
    only the object. Wall stripe outside the box remains reference data.
-5. **Laser tuning** – with the object in place, keep the room lighting and camera
+6. **Laser tuning** – with the object in place, keep the room lighting and camera
    settings exactly as they will be during the scan. Turn only the laser off and
    capture the 15-frame background, then turn it on. Start with **Auto-suggest**
    or **Restore defaults** and tune for one thin continuous detected trace.
-6. **Scan** – start capture and sweep slowly without moving the object, camera,
+7. **Scan** – choose Standard or Fine point-cloud detail before capture, then
+   start and sweep slowly without moving the object, camera,
    or V. Start requires five recent stable preview frames, adequate reference
    support, and a matching background, or an explicit diagnostic-run override.
    The UI reports wall counts, spans, support, plane residual, and angle while
    rejecting invalid frames. Pausing does not align a repositioned object;
    scan each side as a separate pass.
-7. **Review/export** – clean the cloud, build a front-surface mesh, save the
-   project, then export PLY, OBJ, or STL.
+8. **Review/export** – clean the cloud and inspect the front-surface mesh. Make
+   **Finish test & save complete ZIP…** the last action. It creates every model
+   format and sidecar in one file; then press **Start new test run** before the
+   next physical test.
 
 Detailed construction and calibration guidance is in
 [`docs/HARDWARE_AND_CALIBRATION.md`](docs/HARDWARE_AND_CALIBRATION.md), with a
 printable illustrated version in the
 [calibration and corner setup guide](output/pdf/LaserLine3D_Calibration_and_Corner_Setup_Guide.pdf).
-Use the exact [Test This Version procedure](docs/TESTING.md) for the corrective
-0.3.0 hardware run. Diagnostic event and privacy coverage is recorded in the
+Use the exact [Test This Version procedure](docs/TESTING.md) for the 0.4.0
+hardware run. Diagnostic event and privacy coverage is recorded in the
 [diagnostic coverage map](docs/DIAGNOSTIC_COVERAGE.md).
 
 ## Accuracy expectations
@@ -129,7 +139,9 @@ object distance. This is a single-view scanner: it captures the visible front
 surface. Rotate and scan the object from additional fixed setups if all sides
 are needed; finish each side as a separate scan. Automatic multi-view
 registration is intentionally not claimed in the first release. Use **Save
-diagnostics ZIP...** after a problem to package the session log, settings, and
+diagnostics ZIP...** for a compact mid-run troubleshooting package, or finish
+with **Finish test & save complete ZIP…** for the run plus all model files and
+settings. The compact support package includes the session log, settings, and
 scan-quality history for troubleshooting. Diagnostics record aggregate color,
 hue, exposure/clipping, contrast, sharpness, camera-property, reference, and
 inside/outside-ROI measurements. In-app key presses are recorded only as safe

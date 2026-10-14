@@ -174,6 +174,56 @@ class ScanSettings:
     max_points: int = 2_000_000
     capture_interval_ms: int = 80
 
+    @classmethod
+    def from_density_preset(cls, preset_key: str) -> "ScanSettings":
+        """Create scan settings for a tested, user-facing density preset."""
+
+        preset = scan_density_preset(preset_key)
+        return cls(
+            voxel_size_mm=preset.voxel_size_mm,
+            capture_interval_ms=preset.capture_interval_ms,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ScanDensityPreset:
+    """Conservative point-retention choices exposed by the scan UI."""
+
+    key: str
+    label: str
+    voxel_size_mm: float
+    capture_interval_ms: int
+    description: str
+
+
+SCAN_DENSITY_PRESETS: tuple[ScanDensityPreset, ...] = (
+    ScanDensityPreset(
+        key="standard",
+        label="Standard",
+        voxel_size_mm=0.75,
+        capture_interval_ms=80,
+        description="Current 0.75 mm voxel reduction with lower memory and processing load.",
+    ),
+    ScanDensityPreset(
+        key="fine",
+        label="Fine",
+        voxel_size_mm=0.50,
+        capture_interval_ms=80,
+        description="Retains more measured points at 0.50 mm; uses more memory and processing time.",
+    ),
+)
+
+
+def scan_density_preset(preset_key: str) -> ScanDensityPreset:
+    """Return one known density preset without silently accepting unsafe values."""
+
+    normalized = str(preset_key).strip().lower()
+    for preset in SCAN_DENSITY_PRESETS:
+        if preset.key == normalized:
+            return preset
+    choices = ", ".join(preset.key for preset in SCAN_DENSITY_PRESETS)
+    raise ValueError(f"Unknown scan density preset: {preset_key!r}. Choose {choices}.")
+
 
 @dataclass(slots=True)
 class ScanProfile:

@@ -15,7 +15,7 @@ import time
 import traceback
 import uuid
 import zipfile
-from collections import Counter, deque
+from collections import Counter, OrderedDict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -41,6 +41,9 @@ class DiagnosticLog:
     MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
     MAX_TOTAL_ATTACHMENT_BYTES = 32 * 1024 * 1024
     MAX_SUPPORT_BUNDLE_BYTES = 42 * 1024 * 1024
+    MAX_TEST_RUN_LOG_BYTES = 4 * 1024 * 1024
+    MAX_RETAINED_TEST_RUNS = 2
+    MAX_TEST_RUN_EVENT_TYPES = 256
 
     def __init__(
         self,
@@ -72,6 +75,21 @@ class DiagnosticLog:
         self._first_failure: dict[str, Any] | None = None
         self._compaction_count = 0
         self._first_failure_written = False
+        self._active_test_run_id: str | None = None
+        self._test_run_number = 0
+        self._test_run_started_utc: str | None = None
+        self._test_run_started_monotonic = 0.0
+        self._test_run_records: deque[tuple[dict[str, Any], int]] = deque()
+        self._test_run_records_bytes = 0
+        self._test_run_first_record: dict[str, Any] | None = None
+        self._test_run_first_failure: dict[str, Any] | None = None
+        self._test_run_event_counts: Counter[str] = Counter()
+        self._test_run_untracked_event_count = 0
+        self._test_run_dropped_record_count = 0
+        self._completed_test_runs: OrderedDict[str, bytes] = OrderedDict()
+        self._completed_test_run_metadata: OrderedDict[str, dict[str, Any]] = (
+            OrderedDict()
+        )
         self._prune_old_session_logs(root)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         self.path = root / f"laserline3d_{stamp}_{self.session_id[:8]}.jsonl"
@@ -134,6 +152,7 @@ class DiagnosticLog:
         result: str | None = None,
         failure: BaseException | str | None = None,
         test_result: str | None = None,
+        test_run_id: str | None = None,
         **details: Any,
     ) -> str:
         with self._lock:
@@ -150,6 +169,9 @@ class DiagnosticLog:
                 "application_version": self.app_version,
                 "event": name,
             }
+            resolved_test_run_id = test_run_id or self._active_test_run_id
+            if resolved_test_run_id is not None:
+                record["test_run_id"] = _redact_text(str(resolved_test_run_id))[:128]
             for key, value in {
                 "user_action": action,
                 "software_request": request,
@@ -177,6 +199,11 @@ class DiagnosticLog:
             except OSError:
                 current_bytes = 0
             self._remember_record(record)
+            if (
+                resolved_test_run_id is not None
+                and resolved_test_run_id == self._active_test_run_id
+            ):
+                self._remember_test_run_record(record)
             if current_bytes + len(serialized.encode("utf-8")) > self.max_log_bytes:
                 try:
                     self._compact_log_locked()
@@ -193,6 +220,245 @@ class DiagnosticLog:
                     # in-memory evidence remains available for this session.
                     pass
             return event_id
+
+    @property
+    def active_test_run_id(self) -> str | None:
+        """Return the active test-run UUID, if a run is currently open."""
+
+        with self._lock:
+            return self._active_test_run_id
+
+    @property
+    def latest_test_run_id(self) -> str | None:
+        """Return the active run ID or most recently finalized run ID."""
+
+        with self._lock:
+            if self._active_test_run_id is not None:
+                return self._active_test_run_id
+            if self._completed_test_runs:
+                return next(reversed(self._completed_test_runs))
+            return None
+
+    def start_test_run(self) -> str:
+        """Start a new isolated diagnostic run and return its UUID.
+
+        The application-session trace remains continuous. Events emitted while
+        the run is active also carry ``test_run_id`` and are retained in a
+        separate bounded in-memory trace for the complete-run ZIP. Starting a
+        second run before finalizing the first is rejected so evidence cannot
+        be mixed silently.
+        """
+
+        with self._lock:
+            if self._active_test_run_id is not None:
+                active = self._active_test_run_id
+                self.event(
+                    "test_run_start_rejected",
+                    request="Start new test run",
+                    state="test_run_active",
+                    result="rejected",
+                    test_run_id=active,
+                    reason="finish_or_cancel_active_run_first",
+                )
+                raise RuntimeError("finish the active test run before starting another")
+            self._test_run_number += 1
+            self._active_test_run_id = str(uuid.uuid4())
+            self._test_run_started_utc = datetime.now(timezone.utc).isoformat()
+            self._test_run_started_monotonic = time.monotonic()
+            self._reset_active_test_run_trace_locked()
+            run_id = self._active_test_run_id
+            self.event(
+                "test_run_started",
+                action="Start new test run",
+                request="Create isolated run diagnostics",
+                state="active",
+                result="ok",
+                test_run_id=run_id,
+                test_run_number=self._test_run_number,
+            )
+            return run_id
+
+    def finish_test_run(
+        self,
+        *,
+        status: str = "completed",
+        summary: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Finalize the active run and retain its bounded JSONL snapshot."""
+
+        normalized_status = str(status).strip().lower()
+        if normalized_status not in {"completed", "partial", "failed", "cancelled"}:
+            raise ValueError("invalid test-run status")
+        with self._lock:
+            if self._active_test_run_id is None:
+                raise RuntimeError("no test run is active")
+            run_id = self._active_test_run_id
+            finished_utc = datetime.now(timezone.utc).isoformat()
+            elapsed_ms = round(
+                (time.monotonic() - self._test_run_started_monotonic) * 1000.0, 3
+            )
+            self.event(
+                "test_run_finished",
+                action="Finish test run",
+                state="finalized",
+                result=normalized_status,
+                test_run_id=run_id,
+                duration_ms=elapsed_ms,
+                summary=dict(summary or {}),
+            )
+            snapshot = self._active_test_run_snapshot_locked(
+                status=normalized_status,
+                finished_utc=finished_utc,
+            )
+            metadata = self._active_test_run_metadata_locked(
+                status=normalized_status,
+                finished_utc=finished_utc,
+            )
+            self._completed_test_runs[run_id] = snapshot
+            self._completed_test_run_metadata[run_id] = metadata
+            while len(self._completed_test_runs) > self.MAX_RETAINED_TEST_RUNS:
+                expired_id, _snapshot = self._completed_test_runs.popitem(last=False)
+                self._completed_test_run_metadata.pop(expired_id, None)
+            self._active_test_run_id = None
+            return run_id
+
+    def test_run_snapshot(self, test_run_id: str | None = None) -> bytes:
+        """Return one privacy-safe, bounded JSONL trace without other runs."""
+
+        with self._lock:
+            requested_id = test_run_id or self.latest_test_run_id
+            if requested_id is None:
+                raise ValueError("no test-run diagnostics are available")
+            if requested_id == self._active_test_run_id:
+                return self._active_test_run_snapshot_locked(status="active")
+            try:
+                return bytes(self._completed_test_runs[requested_id])
+            except KeyError as error:
+                raise ValueError("test-run diagnostics are no longer available") from error
+
+    def test_run_metadata(self, test_run_id: str | None = None) -> dict[str, Any]:
+        """Return safe identity/timing/count metadata for one retained run."""
+
+        with self._lock:
+            requested_id = test_run_id or self.latest_test_run_id
+            if requested_id is None:
+                raise ValueError("no test-run diagnostics are available")
+            if requested_id == self._active_test_run_id:
+                return self._active_test_run_metadata_locked(status="active")
+            try:
+                return _json_safe(self._completed_test_run_metadata[requested_id])
+            except KeyError as error:
+                raise ValueError("test-run diagnostics are no longer available") from error
+
+    def _reset_active_test_run_trace_locked(self) -> None:
+        self._test_run_records.clear()
+        self._test_run_records_bytes = 0
+        self._test_run_first_record = None
+        self._test_run_first_failure = None
+        self._test_run_event_counts.clear()
+        self._test_run_untracked_event_count = 0
+        self._test_run_dropped_record_count = 0
+
+    def _remember_test_run_record(self, record: dict[str, Any]) -> None:
+        """Retain recent run records under a hard serialized-byte budget."""
+
+        event_name = str(record.get("event", "unknown"))[:64]
+        if (
+            event_name in self._test_run_event_counts
+            or len(self._test_run_event_counts) < self.MAX_TEST_RUN_EVENT_TYPES
+        ):
+            self._test_run_event_counts[event_name] += 1
+        else:
+            self._test_run_untracked_event_count += 1
+        if self._test_run_first_record is None:
+            self._test_run_first_record = record
+        if "failure" in record and self._test_run_first_failure is None:
+            self._test_run_first_failure = record
+        size = len(_record_json(record).encode("utf-8")) + 1
+        self._test_run_records.append((record, size))
+        self._test_run_records_bytes += size
+        # Reserve room for the start/failure records and generated trace
+        # summary. The completed snapshot therefore remains under the public
+        # hard limit even when individual events reach MAX_EVENT_BYTES.
+        records_budget = max(
+            1024,
+            self.MAX_TEST_RUN_LOG_BYTES - (self.MAX_EVENT_BYTES * 3),
+        )
+        while self._test_run_records_bytes > records_budget and self._test_run_records:
+            _discarded, discarded_size = self._test_run_records.popleft()
+            self._test_run_records_bytes -= discarded_size
+            self._test_run_dropped_record_count += 1
+
+    def _active_test_run_metadata_locked(
+        self,
+        *,
+        status: str,
+        finished_utc: str | None = None,
+    ) -> dict[str, Any]:
+        if self._active_test_run_id is None:
+            raise RuntimeError("no test run is active")
+        metadata = {
+            "schema": "laserline3d.test-run.v1",
+            "application_session_id": self.session_id,
+            "test_run_id": self._active_test_run_id,
+            "test_run_number": self._test_run_number,
+            "application_version": self.app_version,
+            "started_utc": self._test_run_started_utc,
+            "finished_utc": finished_utc,
+            "status": status,
+            "event_counts": dict(self._test_run_event_counts),
+            "untracked_event_type_count": self._test_run_untracked_event_count,
+            "dropped_record_count": self._test_run_dropped_record_count,
+            "log_limit_bytes": self.MAX_TEST_RUN_LOG_BYTES,
+        }
+        return _json_safe(metadata)
+
+    def _active_test_run_snapshot_locked(
+        self,
+        *,
+        status: str,
+        finished_utc: str | None = None,
+    ) -> bytes:
+        if self._active_test_run_id is None:
+            raise RuntimeError("no test run is active")
+        summary = {
+            "event_id": str(uuid.uuid4()),
+            "sequence_number": self._sequence + 1,
+            "time_utc": datetime.now(timezone.utc).isoformat(),
+            "monotonic_elapsed_ms": round(
+                (time.monotonic() - self._started_monotonic) * 1000.0, 3
+            ),
+            "session_id": self.session_id,
+            "test_run_id": self._active_test_run_id,
+            "application_version": self.app_version,
+            "event": "test_run_trace_summary",
+            "internal_state": "bounded",
+            "actual_result": "ok",
+            "details": self._active_test_run_metadata_locked(
+                status=status,
+                finished_utc=finished_utc,
+            ),
+        }
+        summary = self._bound_record(summary)
+        selected: dict[str, dict[str, Any]] = {}
+        for record in (self._test_run_first_record, self._test_run_first_failure):
+            if record is not None:
+                selected[str(record.get("event_id", ""))] = record
+        for record, _size in self._test_run_records:
+            selected[str(record.get("event_id", ""))] = record
+        records = sorted(
+            selected.values(), key=lambda item: int(item.get("sequence_number", 0))
+        )
+        lines = [(_record_json(record) + "\n").encode("utf-8") for record in records]
+        summary_line = (_record_json(summary) + "\n").encode("utf-8")
+        while lines and sum(map(len, lines)) + len(summary_line) > self.MAX_TEST_RUN_LOG_BYTES:
+            # Preserve the first run event; drop the next-oldest retained event.
+            drop_at = 1 if len(lines) > 1 else 0
+            lines.pop(drop_at)
+        payload = b"".join(lines) + summary_line
+        if len(payload) > self.MAX_TEST_RUN_LOG_BYTES:
+            raise RuntimeError("bounded test-run snapshot exceeded its hard limit")
+        return payload
 
     def _bound_record(self, record: dict[str, Any]) -> dict[str, Any]:
         """Return a valid JSON record no larger than ``MAX_EVENT_BYTES``."""
@@ -219,6 +485,7 @@ class DiagnosticLog:
                 "event_id": 64,
                 "time_utc": 64,
                 "session_id": 64,
+                "test_run_id": 128,
                 "application_version": 64,
                 "event": 256,
                 "failure_type": 128,
@@ -230,6 +497,7 @@ class DiagnosticLog:
                 "time_utc",
                 "monotonic_elapsed_ms",
                 "session_id",
+                "test_run_id",
                 "application_version",
                 "event",
                 "failure_type",
@@ -248,9 +516,14 @@ class DiagnosticLog:
             bounded = minimal
         if len(_record_json(bounded).encode("utf-8")) > self.MAX_EVENT_BYTES:
             bounded = {
+                "event_id": str(record.get("event_id", ""))[:64],
+                "sequence_number": record.get("sequence_number"),
+                "session_id": str(record.get("session_id", ""))[:64],
                 "event": "diagnostic_event_omitted",
                 "details": {"original_size_bytes": len(encoded)},
             }
+            if "test_run_id" in record:
+                bounded["test_run_id"] = str(record["test_run_id"])[:128]
         return bounded
 
     def _remember_record(self, record: dict[str, Any]) -> None:
@@ -546,6 +819,16 @@ def _json_safe(value: Any) -> Any:
         return value
     except TypeError:
         return _redact_text(repr(value))
+
+
+def sanitize_for_diagnostics(value: Any) -> Any:
+    """Return a bounded, redacted, standard-JSON-compatible value.
+
+    Complete-run packaging uses the same sanitizer as the persistent event
+    trace so metadata cannot bypass the established path/secret protections.
+    """
+
+    return _json_safe(value)
 
 
 def _redact_text(value: str) -> str:

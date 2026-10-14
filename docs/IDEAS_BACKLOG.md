@@ -37,6 +37,12 @@ Current PROJECT_STATUS.md already proposes this correction following the 0.3.0 f
 
 ### B. More detailed point clouds: separate fidelity from display
 
+**Implemented safe subset in 0.4.0:** Standard 0.75 mm and Fine 0.50 mm voxel
+reduction, an immutable per-scan settings snapshot, 10k/50k display-only preview
+choices, and visible displayed/total counts. The 0.25 mm experiment, camera
+resolution research, raw-profile reprocessing, and accuracy claims remain
+deferred pending physical measurement.
+
 - Make **preview point-density** adjustable; the 10k-point screen cap can hide detail that exists in saved geometry. Preserve safe rendering performance with a maximum or adaptive decimation.
 - Evaluate optional voxel sizes (e.g. 0.75, 0.5, 0.25 mm), while quantifying changes to noise, size, RAM, processing time, and dimensional error. Smaller voxels preserve more measurements but cannot recover precision the camera/triangulation did not capture.
 - Evaluate camera native-resolution choices and calibrated resolution matching; do not claim digital interpolation produces new geometric information.
@@ -67,7 +73,13 @@ Current PROJECT_STATUS.md already proposes this correction following the 0.3.0 f
 
 ### E. Per-test diagnostic and artifact bundles / repeated independent runs
 
-**User request, 2026-10-13:** The user wants one easy-to-upload diagnostic ZIP per complete test run that bundles *all relevant 3D artifacts together* (PLY point cloud, OBJ and STL meshes, their matching JSON sidecars, scan/project data, settings, diagnostics, and optional images). The user wants to complete and export one run, then start a completely new run and export a separate, independent ZIP, without having to close/reopen the application or manually assemble files. The user previously discussed this with Codex; **first verify what Codex may already have implemented** before doing any work. This is a proposal only.
+**Implemented in the 0.4.0 candidate:** the persistent test-run toolbar,
+isolated bounded run JSONL, distinct session/run/scan IDs, safe unsaved-run
+confirmation, and a sealed complete ZIP with explicit raw/final models,
+sidecars, project/calibration/settings, manifest hashes, validation, and
+optional images. Physical hardware verification remains pending.
+
+**User request, 2026-10-13:** The user wants one easy-to-upload diagnostic ZIP per complete test run that bundles *all relevant 3D artifacts together* (PLY point cloud, OBJ and STL meshes, their matching JSON sidecars, scan/project data, settings, diagnostics, and optional images). The user wants to complete and export one run, then start a completely new run and export a separate, independent ZIP, without having to close/reopen the application or manually assemble files.
 
 **Current verified 0.3.0 behavior (source checked 2026-10-13):**
 - The app already exports a diagnostic support ZIP containing a manifest, a cumulative application-session JSONL log, settings/scan metadata, and optional user-approved current camera/background images.

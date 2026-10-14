@@ -21,6 +21,10 @@ from PySide6.QtWidgets import QApplication, QFrame, QLabel, QSizePolicy, QVBoxLa
 from ..models import Mesh, PointCloud
 
 
+POINT_CLOUD_PREVIEW_LIMITS = (10_000, 50_000)
+DEFAULT_POINT_CLOUD_PREVIEW_LIMIT = POINT_CLOUD_PREVIEW_LIMITS[0]
+
+
 class VideoCanvas(QWidget):
     point_clicked = Signal(float, float)
     roi_changed = Signal(object)
@@ -490,11 +494,16 @@ def _fit_rect(widget_width: int, widget_height: int, image_width: int, image_hei
 
 
 class PointCloudView(QWidget):
+    point_counts_changed = Signal(int, int)
+
     def __init__(self) -> None:
         super().__init__()
         self.setMinimumSize(420, 320)
+        self._source_points = np.empty((0, 3), dtype=np.float64)
+        self._source_colors = np.empty((0, 3), dtype=np.uint8)
         self._points = np.empty((0, 3), dtype=np.float64)
         self._colors = np.empty((0, 3), dtype=np.uint8)
+        self._point_limit = DEFAULT_POINT_CLOUD_PREVIEW_LIMIT
         self._yaw = -0.55
         self._pitch = 0.35
         self._zoom = 1.0
@@ -503,13 +512,57 @@ class PointCloudView(QWidget):
 
     def set_cloud(self, cloud: PointCloud | None) -> None:
         if cloud is None or not len(cloud.points):
+            self._source_points = np.empty((0, 3), dtype=np.float64)
+            self._source_colors = np.empty((0, 3), dtype=np.uint8)
+        else:
+            # Keep read-only source references so changing preview detail can
+            # resample without touching the measured cloud or its RGB values.
+            self._source_points = cloud.points
+            self._source_colors = cloud.colors
+        self._resample_preview()
+
+    def _resample_preview(self) -> None:
+        total = len(self._source_points)
+        if not total:
             self._points = np.empty((0, 3), dtype=np.float64)
             self._colors = np.empty((0, 3), dtype=np.uint8)
+        elif total <= self._point_limit:
+            self._points = self._source_points.copy()
+            self._colors = self._source_colors.copy()
         else:
-            step = max(1, int(np.ceil(len(cloud.points) / 10_000)))
-            self._points = cloud.points[::step].copy()
-            self._colors = cloud.colors[::step].copy()
+            indices = np.linspace(0, total - 1, self._point_limit, dtype=np.int64)
+            self._points = self._source_points[indices].copy()
+            self._colors = self._source_colors[indices].copy()
+        self.point_counts_changed.emit(len(self._points), total)
         self.update()
+
+    @property
+    def point_limit(self) -> int:
+        return self._point_limit
+
+    @property
+    def source_point_count(self) -> int:
+        return len(self._source_points)
+
+    @property
+    def displayed_point_count(self) -> int:
+        return len(self._points)
+
+    @property
+    def point_count_text(self) -> str:
+        return f"Showing {self.displayed_point_count:,} of {self.source_point_count:,} points"
+
+    def set_point_limit(self, point_limit: int) -> None:
+        """Change preview detail only; measured/exported cloud data is untouched."""
+
+        point_limit = int(point_limit)
+        if point_limit not in POINT_CLOUD_PREVIEW_LIMITS:
+            choices = ", ".join(f"{value:,}" for value in POINT_CLOUD_PREVIEW_LIMITS)
+            raise ValueError(f"Preview point limit must be one of: {choices}")
+        if point_limit == self._point_limit:
+            return
+        self._point_limit = point_limit
+        self._resample_preview()
 
     def set_mesh(self, mesh: Mesh | None) -> None:
         if mesh is None:
@@ -546,6 +599,7 @@ class PointCloudView(QWidget):
         if not len(self._points):
             painter.setPen(QColor("#8391a5"))
             painter.drawText(self.rect(), Qt.AlignCenter, "3D preview appears here")
+            painter.drawText(12, self.height() - 12, self.point_count_text)
             return
         centered = self._points - self._points.mean(axis=0)
         cy, sy = math.cos(self._yaw), math.sin(self._yaw)
@@ -567,6 +621,7 @@ class PointCloudView(QWidget):
         painter.drawText(12, 22, "Drag to rotate • wheel to zoom")
         if self._color_mode == "high_contrast":
             painter.drawText(12, 40, "High-contrast preview • saved RGB is unchanged")
+        painter.drawText(12, self.height() - 12, self.point_count_text)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:

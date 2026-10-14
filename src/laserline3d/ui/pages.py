@@ -25,9 +25,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..camera import BACKENDS, CameraRequest
-from ..models import LaserSettings, Mesh, PointCloud
+from ..models import SCAN_DENSITY_PRESETS, LaserSettings, Mesh, PointCloud, ScanSettings
 from ..reconstruction import FrameQuality
-from .widgets import CornerLandmarkDiagram, PointCloudView, StatusCard, VideoCanvas
+from .widgets import (
+    POINT_CLOUD_PREVIEW_LIMITS,
+    CornerLandmarkDiagram,
+    PointCloudView,
+    StatusCard,
+    VideoCanvas,
+)
 
 
 class WizardPage(QWidget):
@@ -664,6 +670,8 @@ class ScanPage(WizardPage):
     clear_requested = Signal()
     diagnostics_requested = Signal()
     preview_mode_changed = Signal(str)
+    density_preset_changed = Signal(str)
+    preview_point_limit_changed = Signal(int)
 
     def __init__(self) -> None:
         super().__init__(
@@ -693,6 +701,27 @@ class ScanPage(WizardPage):
             buttons.addWidget(button)
         buttons.addStretch()
         self.layout.addLayout(buttons)
+        density_row = QHBoxLayout()
+        density_row.addWidget(QLabel("Point-cloud detail"))
+        self.density_preset = QComboBox()
+        for preset in SCAN_DENSITY_PRESETS:
+            self.density_preset.addItem(
+                f"{preset.label} ({preset.voxel_size_mm:.2f} mm)", preset.key
+            )
+        self.density_preset.setToolTip(
+            "Controls voxel reduction. Fine keeps more measured points but uses more memory and processing time."
+        )
+        self.density_preset.currentIndexChanged.connect(self._density_preset_changed)
+        density_row.addWidget(self.density_preset)
+        self.density_note = QLabel(
+            "Standard uses the current 0.75 mm voxel reduction. Fine retains more measured points; "
+            "it cannot recover detail the camera did not capture."
+        )
+        self.density_note.setObjectName("fieldHelp")
+        self.density_note.setWordWrap(True)
+        density_row.addWidget(self.density_note)
+        density_row.addStretch()
+        self.layout.addLayout(density_row)
         cards = QHBoxLayout()
         self.reference = StatusCard("Reference lock")
         self.laser = StatusCard("Laser plane")
@@ -715,6 +744,18 @@ class ScanPage(WizardPage):
         self.preview_colors.addItem("Measured surface colors", "surface")
         self.preview_colors.currentIndexChanged.connect(self._preview_color_changed)
         preview_row.addWidget(self.preview_colors)
+        preview_row.addWidget(QLabel("Preview detail"))
+        self.preview_points = QComboBox()
+        self.preview_points.addItem("10,000 points (fast)", POINT_CLOUD_PREVIEW_LIMITS[0])
+        self.preview_points.addItem("50,000 points (detailed)", POINT_CLOUD_PREVIEW_LIMITS[1])
+        self.preview_points.setToolTip(
+            "Display only. This never removes points from saved projects or exports."
+        )
+        self.preview_points.currentIndexChanged.connect(self._preview_point_limit_changed)
+        preview_row.addWidget(self.preview_points)
+        self.preview_count = QLabel(self.cloud.point_count_text)
+        self.cloud.point_counts_changed.connect(self._update_preview_count)
+        preview_row.addWidget(self.preview_count)
         self.preview_note = QLabel("Display only—saved projects and exported point colors never change.")
         self.preview_note.setWordWrap(True)
         preview_row.addWidget(self.preview_note)
@@ -778,6 +819,9 @@ class ScanPage(WizardPage):
             self.pause.setEnabled(False)
             self.finish.setEnabled(self._has_scan_data)
             self.clear.setEnabled(self._has_scan_data)
+        self.density_preset.setEnabled(
+            state in {"ready", "error"} and not self._has_scan_data
+        )
 
     def mark_scan_cleared(self) -> None:
         self.set_scan_state("ready", has_data=False)
@@ -786,6 +830,33 @@ class ScanPage(WizardPage):
         mode = str(self.preview_colors.currentData())
         self.cloud.set_color_mode(mode)
         self.preview_mode_changed.emit(mode)
+
+    @property
+    def selected_density_preset(self) -> str:
+        return str(self.density_preset.currentData())
+
+    def selected_scan_settings(self) -> ScanSettings:
+        """Return a fresh settings object for the selected conservative preset."""
+
+        return ScanSettings.from_density_preset(self.selected_density_preset)
+
+    def set_density_preset(self, preset_key: str) -> None:
+        index = self.density_preset.findData(str(preset_key).strip().lower())
+        if index < 0:
+            choices = ", ".join(preset.key for preset in SCAN_DENSITY_PRESETS)
+            raise ValueError(f"Unknown scan density preset: {preset_key!r}. Choose {choices}.")
+        self.density_preset.setCurrentIndex(index)
+
+    def _density_preset_changed(self, _index: int = -1) -> None:
+        self.density_preset_changed.emit(self.selected_density_preset)
+
+    def _preview_point_limit_changed(self, _index: int = -1) -> None:
+        point_limit = int(self.preview_points.currentData())
+        self.cloud.set_point_limit(point_limit)
+        self.preview_point_limit_changed.emit(point_limit)
+
+    def _update_preview_count(self, displayed: int, total: int) -> None:
+        self.preview_count.setText(f"Showing {displayed:,} of {total:,} points")
 
     def show_quality(self, quality: FrameQuality, accepted: int, point_count: int, dropped: int) -> None:
         if accepted > 0 or point_count > 0:

@@ -5,6 +5,7 @@ import tempfile
 import time
 import uuid
 from collections import Counter, deque
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -15,12 +16,15 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QProgressDialog,
+    QPushButton,
     QStackedWidget,
+    QToolBar,
     QWidget,
 )
 
@@ -60,6 +64,12 @@ from ..reconstruction import (
     remove_statistical_outliers,
 )
 from ..resources import CHECKERBOARD_PDF, SETUP_GUIDE_PDF, printable_path
+from ..run_bundle import (
+    ArtifactRelationship,
+    RunBundleArtifact,
+    RunBundleCancelledError,
+    create_complete_run_bundle,
+)
 from ..synthetic import make_synthetic_rig, render_laser_frame
 from ..telemetry import ScanEvidenceAccumulator
 from .pages import (
@@ -107,7 +117,15 @@ class MainWindow(QMainWindow):
         self._background_sum: np.ndarray | None = None
         self._background_remaining = 0
         self.reconstructor: FrameReconstructor | None = None
-        self.accumulator = ScanAccumulator()
+        # Keep one immutable-in-practice settings snapshot for the lifetime of
+        # a scan.  The UI selector is disabled once capture starts, but this
+        # controller snapshot also prevents programmatic UI changes from
+        # mixing voxel sizes or capture intervals in one scan.
+        self._active_scan_settings = ScanSettings()
+        self.accumulator = ScanAccumulator(
+            self._active_scan_settings.voxel_size_mm,
+            self._active_scan_settings.max_points,
+        )
         self.cleaned_cloud: PointCloud | None = None
         self.mesh: Mesh | None = None
         self.scanning = False
@@ -124,6 +142,17 @@ class MainWindow(QMainWindow):
         self._last_scan_detail_log_time = 0.0
         self._last_scan_reason_code = ""
         self._no_line_streak = 0
+        self._test_run_id: str | None = None
+        self._test_run_finalized = False
+        self._test_run_saved = False
+        self._run_exported_artifacts: list[tuple[Path, Path, str]] = []
+        self._run_package_requests: list[dict[str, object]] = []
+        self._test_run_end_frame: np.ndarray | None = None
+        self._test_run_frozen_settings: dict[str, object] | None = None
+        self._raw_fused_spool: tempfile.TemporaryDirectory[str] | None = None
+        self._raw_fused_spool_path: Path | None = None
+        self._raw_fused_point_count = 0
+        self._cloud_cleanup_applied = False
         self._latest_tune_result: object | None = None
         self._latest_tune_result_time = 0.0
         self._tune_readiness_history: deque[dict[str, object]] = deque(maxlen=12)
@@ -170,10 +199,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.navigation)
         layout.addWidget(self.stack, 1)
         self.setCentralWidget(shell)
+        self._create_test_run_toolbar()
         self.navigation.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.navigation.currentRowChanged.connect(self._page_changed)
         self.navigation.setCurrentRow(0)
         self._connect_page_actions()
+        self._start_test_run(initial=True)
         application = QApplication.instance()
         if application is not None:
             application.installEventFilter(self)
@@ -222,12 +253,198 @@ class MainWindow(QMainWindow):
         self.scan_page.clear_requested.connect(self.clear_scan)
         self.scan_page.diagnostics_requested.connect(self.save_diagnostics_bundle)
         self.scan_page.preview_mode_changed.connect(self.on_preview_mode_changed)
+        self.scan_page.density_preset_changed.connect(self.on_scan_density_preset_changed)
+        self.scan_page.preview_point_limit_changed.connect(
+            self.on_preview_point_limit_changed
+        )
         self.review_page.clean_requested.connect(self.clean_cloud)
         self.review_page.mesh_requested.connect(self.create_mesh)
         self.review_page.save_project_requested.connect(self.save_project_dialog)
         self.review_page.export_ply_requested.connect(self.export_ply_dialog)
         self.review_page.export_obj_requested.connect(self.export_obj_dialog)
         self.review_page.export_stl_requested.connect(self.export_stl_dialog)
+
+    def _create_test_run_toolbar(self) -> None:
+        """Keep physical-test boundaries visible throughout the workflow."""
+
+        toolbar = QToolBar("Physical test run", self)
+        toolbar.setObjectName("testRunToolbar")
+        toolbar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        self.test_run_status = QLabel("Preparing test run…")
+        self.test_run_status.setObjectName("fieldHelp")
+        toolbar.addWidget(self.test_run_status)
+        toolbar.addSeparator()
+        self.new_test_run_button = QPushButton("Start new test run")
+        self.new_test_run_button.setToolTip(
+            "Ends the current run and clears its scan data while keeping reusable calibration."
+        )
+        self.new_test_run_button.clicked.connect(self.start_new_test_run)
+        toolbar.addWidget(self.new_test_run_button)
+        self.save_complete_run_button = QPushButton("Finish test & save complete ZIP…")
+        self.save_complete_run_button.setObjectName("primaryButton")
+        self.save_complete_run_button.setToolTip(
+            "Last step for a physical test: packages diagnostics, project data, PLY, OBJ, STL, and JSON sidecars."
+        )
+        self.save_complete_run_button.clicked.connect(
+            self.save_complete_test_run_bundle
+        )
+        toolbar.addWidget(self.save_complete_run_button)
+
+    def _update_test_run_status(self, message: str | None = None) -> None:
+        run_short = self._test_run_id[:8] if self._test_run_id else "none"
+        if message is None:
+            if self._test_run_saved:
+                message = "complete ZIP saved"
+            elif self._test_run_finalized:
+                message = "finished; ZIP can be retried"
+            elif self.cleaned_cloud is not None:
+                message = "review ready; save the complete ZIP last"
+            else:
+                message = "recording"
+        self.test_run_status.setText(f"Test run {run_short} • {message}")
+        # Once diagnostics are finalized, freeze every workflow control so a
+        # retry cannot silently package state that differs from the sealed run.
+        # The persistent run toolbar remains available for ZIP retry/new run.
+        self.navigation.setEnabled(not self._test_run_finalized)
+        self.stack.setEnabled(not self._test_run_finalized)
+        self.save_complete_run_button.setEnabled(
+            self._test_run_id is not None and not self._test_run_saved
+        )
+
+    def _test_run_summary(self) -> dict[str, object]:
+        final_points = len(self.cleaned_cloud.points) if self.cleaned_cloud is not None else 0
+        raw_fused_points = self._raw_fused_point_count or final_points
+        return {
+            "scan_operation_id": self._scan_operation_id,
+            "accepted_frames": self.accumulator.accepted_frames,
+            "rejected_frames": self.accumulator.rejected_frames,
+            "raw_profile_points": sum(
+                len(profile.points_world) for profile in self.accumulator.profiles
+            ),
+            "raw_fused_point_count": raw_fused_points,
+            "final_point_count": final_points,
+            "triangle_count": len(self.mesh.faces) if self.mesh is not None else 0,
+            "scan_preview_source_points": self.scan_page.cloud.source_point_count,
+            "scan_preview_displayed_points": self.scan_page.cloud.displayed_point_count,
+            "review_preview_source_points": self.review_page.viewer.source_point_count,
+            "review_preview_displayed_points": self.review_page.viewer.displayed_point_count,
+            "rejection_reasons": dict(self._scan_rejection_counts),
+            "scan_evidence": self._scan_evidence.summary(),
+            "package_requests": [dict(item) for item in self._run_package_requests],
+        }
+
+    def _run_settings_snapshot(self) -> dict[str, object]:
+        return {
+            "camera": self.camera_details,
+            "laser": settings_dict(self.current_laser_settings()),
+            "scan": settings_dict(self.current_scan_settings()),
+            "preview": {
+                "color_mode": self.scan_page.preview_colors.currentData(),
+                "point_limit": self.scan_page.preview_points.currentData(),
+                "display_only": True,
+            },
+            "background": {
+                "available": self.background is not None,
+                "age_s": self._background_age_s(),
+                "statistics": (
+                    self._frame_region_statistics(self.background)
+                    if self.background is not None
+                    else None
+                ),
+            },
+        }
+
+    def _discard_raw_fused_spool(self) -> None:
+        holder = self._raw_fused_spool
+        self._raw_fused_spool = None
+        self._raw_fused_spool_path = None
+        self._raw_fused_point_count = 0
+        if holder is not None:
+            try:
+                holder.cleanup()
+            except OSError as error:
+                self.diagnostics.event(
+                    "raw_fused_spool_cleanup_failed", failure=error
+                )
+
+    def _ensure_raw_fused_spool(self, cloud: PointCloud) -> None:
+        """Persist the pre-cleanup fused cloud once, avoiding later re-fusion."""
+
+        if self._raw_fused_spool_path is not None and self._raw_fused_spool_path.is_file():
+            return
+        holder = tempfile.TemporaryDirectory(prefix="laserline3d-raw-fused-")
+        path = Path(holder.name) / "fused-scan.ply"
+        try:
+            export_point_cloud_ply(path, cloud)
+        except Exception:
+            holder.cleanup()
+            raise
+        self._discard_raw_fused_spool()
+        self._raw_fused_spool = holder
+        self._raw_fused_spool_path = path
+        self._raw_fused_point_count = len(cloud.points)
+        self.diagnostics.event(
+            "raw_fused_cloud_spooled",
+            state="preserved_for_complete_run",
+            result="ok",
+            point_count=self._raw_fused_point_count,
+            size_bytes=path.stat().st_size,
+        )
+
+    def _start_test_run(self, *, initial: bool = False) -> None:
+        self._test_run_id = self.diagnostics.start_test_run()
+        self._test_run_finalized = False
+        self._test_run_saved = False
+        self._run_exported_artifacts.clear()
+        self._run_package_requests.clear()
+        self._test_run_end_frame = None
+        self._test_run_frozen_settings = None
+        self._update_test_run_status("recording from application start" if initial else "recording")
+
+    def _has_unsaved_test_evidence(self) -> bool:
+        return bool(
+            not self._test_run_saved
+            and (
+                self.accumulator.accepted_frames
+                or self.accumulator.rejected_frames
+                or self.cleaned_cloud is not None
+                or self._run_exported_artifacts
+                or self._run_package_requests
+            )
+        )
+
+    def start_new_test_run(self) -> None:
+        """Begin an isolated physical test without discarding reusable calibration."""
+
+        has_unsaved_evidence = self._has_unsaved_test_evidence()
+        if has_unsaved_evidence:
+            answer = QMessageBox.question(
+                self,
+                "Start a new test run?",
+                "The current test has not been saved as a complete ZIP. Starting a new run clears its scan data. "
+                "Reusable lens/corner calibration and the current laser-off background stay available.\n\n"
+                "Start a new run anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        if self.scanning:
+            self.pause_scan()
+        previous_summary = self._test_run_summary()
+        # Clear while the old run is still active so the discarded measurements
+        # and operation ID are recorded under the correct correlation ID.
+        self.clear_scan()
+        if self._test_run_id is not None and not self._test_run_finalized:
+            self.diagnostics.finish_test_run(
+                status="cancelled", summary=previous_summary
+            )
+        self._start_test_run()
+        self.navigation.setCurrentRow(4 if self.background is None else 5)
+        self.scan_page.guidance.setText(
+            "New test run started. Recapture the laser-off background if the object, lighting, exposure, or white balance changed."
+        )
 
     def eventFilter(self, watched: object, event: object) -> bool:  # noqa: N802 - Qt API
         """Record in-app interaction structure without recording what was typed.
@@ -1140,7 +1357,42 @@ class MainWindow(QMainWindow):
         )
 
     def current_scan_settings(self) -> ScanSettings:
-        return ScanSettings()
+        return self._active_scan_settings
+
+    def on_scan_density_preset_changed(self, preset_key: str) -> None:
+        """Apply a density preset only before a scan owns any measurements."""
+
+        if self.scanning or self.accumulator.accepted_frames:
+            self.diagnostics.event(
+                "scan_density_change_rejected",
+                state="locked",
+                result="ignored",
+                requested_preset=preset_key,
+                accepted_frames=self.accumulator.accepted_frames,
+            )
+            return
+        settings = self.scan_page.selected_scan_settings()
+        self._active_scan_settings = settings
+        self.accumulator = ScanAccumulator(settings.voxel_size_mm, settings.max_points)
+        self.rebuild_reconstructor()
+        self.diagnostics.event(
+            "scan_density_changed",
+            action="Change point-cloud detail",
+            state="ready",
+            result="ok",
+            preset=preset_key,
+            scan_settings=settings_dict(settings),
+        )
+
+    def on_preview_point_limit_changed(self, point_limit: int) -> None:
+        self.diagnostics.event(
+            "point_cloud_preview_detail_changed",
+            action="Change preview detail",
+            state="display_only",
+            result="ok",
+            displayed_point_limit=int(point_limit),
+            export_data_changed=False,
+        )
 
     def rebuild_reconstructor(self) -> None:
         if self.corner_calibration is not None and self.rig_page.roi is not None:
@@ -1469,7 +1721,7 @@ class MainWindow(QMainWindow):
         self._no_line_streak = 0
         self._finish_pending = False
         self._last_submit_time = 0.0
-        if self._scan_operation_id is None or not self.accumulator.accepted_frames:
+        if self._scan_operation_id is None:
             self._scan_operation_id = str(uuid.uuid4())
         self.scan_page.set_scan_state(
             "scanning", has_data=bool(self.accumulator.accepted_frames)
@@ -1513,6 +1765,34 @@ class MainWindow(QMainWindow):
             self._log_frame_statistics("scan_pause", force=True)
 
     def finish_scan(self) -> None:
+        worker_running = (
+            self.processing_worker is not None and self.processing_worker.isRunning()
+        )
+        if (
+            not self.scanning
+            and not self._finish_pending
+            and not worker_running
+            and self.cleaned_cloud is not None
+            and len(self.cleaned_cloud.points)
+        ):
+            # Finish is intentionally idempotent.  In 0.3.0, pressing it a
+            # second time rebuilt the raw accumulator cloud and silently undid
+            # cleanup.  Reuse the reviewed result until new frames arrive.
+            self.review_page.set_model(self.cleaned_cloud, self.mesh)
+            self.scan_page.set_scan_state("paused", has_data=True)
+            self.navigation.setCurrentRow(6)
+            self._update_test_run_status("review preserved; save the complete ZIP last")
+            self.diagnostics.event(
+                "scan_finish_reused_reviewed_result",
+                action="Finish and review",
+                state="review",
+                result="ok",
+                operation_id=self._scan_operation_id,
+                point_count=len(self.cleaned_cloud.points),
+                triangle_count=len(self.mesh.faces) if self.mesh is not None else 0,
+                cleanup_preserved=True,
+            )
+            return
         self.scanning = False
         self._finish_pending = True
         self.scan_page.set_scan_state(
@@ -1547,7 +1827,12 @@ class MainWindow(QMainWindow):
         if not self._finish_pending:
             return
         self._finish_pending = False
-        cloud = self.accumulator.cloud()
+        if self.cleaned_cloud is not None and len(self.cleaned_cloud.points):
+            review_result_reused = True
+            cloud = self.cleaned_cloud
+        else:
+            review_result_reused = False
+            cloud = self.accumulator.cloud()
         if not len(cloud.points):
             self.scan_page.set_scan_state("ready", has_data=False)
             self.scan_page.guidance.setText(
@@ -1564,12 +1849,18 @@ class MainWindow(QMainWindow):
                 evidence=self._scan_evidence.summary(),
             )
             self._error("No scan data", "No frames passed the reference and geometry checks.")
+            self._update_test_run_status("recording; no accepted scan frames")
             return
         self.cleaned_cloud = cloud
-        self.mesh = None
-        self.review_page.set_model(cloud, None)
+        if not review_result_reused:
+            self._discard_raw_fused_spool()
+            self._raw_fused_point_count = len(cloud.points)
+            self._cloud_cleanup_applied = False
+            self.mesh = None
+        self.review_page.set_model(cloud, self.mesh)
         self.scan_page.set_scan_state("paused", has_data=True)
         self.navigation.setCurrentRow(6)
+        self._update_test_run_status("review ready; save the complete ZIP last")
         self.diagnostics.event(
             "scan_finished",
             state="review",
@@ -1578,6 +1869,8 @@ class MainWindow(QMainWindow):
             accepted_frames=self.accumulator.accepted_frames,
             rejected_frames=self.accumulator.rejected_frames,
             point_count=len(cloud.points),
+            triangle_count=len(self.mesh.faces) if self.mesh is not None else 0,
+            review_result_reused=review_result_reused,
             rejection_reasons=dict(self._scan_rejection_counts),
             evidence=self._scan_evidence.summary(),
         )
@@ -1591,9 +1884,15 @@ class MainWindow(QMainWindow):
         previous_rejected = self.accumulator.rejected_frames
         previous_points = sum(len(profile.points_world) for profile in self.accumulator.profiles)
         previous_operation_id = self._scan_operation_id
-        self.accumulator = ScanAccumulator()
+        self._active_scan_settings = self.scan_page.selected_scan_settings()
+        self.accumulator = ScanAccumulator(
+            self._active_scan_settings.voxel_size_mm,
+            self._active_scan_settings.max_points,
+        )
         self.cleaned_cloud = None
         self.mesh = None
+        self._discard_raw_fused_spool()
+        self._cloud_cleanup_applied = False
         self._processed_frame_count = 0
         previous_reasons = dict(self._scan_rejection_counts)
         self._scan_rejection_counts.clear()
@@ -1603,6 +1902,7 @@ class MainWindow(QMainWindow):
         self._no_line_streak = 0
         self._scan_operation_id = None
         self.scan_page.cloud.set_cloud(None)
+        self.review_page.set_model(None, None)
         self.scan_page.coverage.set_status("0 frames • 0 points", "neutral")
         self.scan_page.guidance.setText("Scan data cleared. Ready for a new sweep.")
         self.scan_page.mark_scan_cleared()
@@ -1617,6 +1917,7 @@ class MainWindow(QMainWindow):
             removed_points=previous_points,
             rejection_reasons=previous_reasons,
         )
+        self._update_test_run_status("recording; scan data cleared")
 
     def on_processed_frame(self, result: object, frame: object) -> None:
         sender = self.sender()
@@ -1638,6 +1939,25 @@ class MainWindow(QMainWindow):
             self.pause_scan()
             self._error("Scan limit reached", str(error))
             return
+        if accepted and (self.cleaned_cloud is not None or self.mesh is not None):
+            previous_points = (
+                len(self.cleaned_cloud.points) if self.cleaned_cloud is not None else 0
+            )
+            previous_triangles = len(self.mesh.faces) if self.mesh is not None else 0
+            self.cleaned_cloud = None
+            self.mesh = None
+            self._discard_raw_fused_spool()
+            self._cloud_cleanup_applied = False
+            self.review_page.set_model(None, None)
+            self.diagnostics.event(
+                "scan_review_result_invalidated",
+                state="capturing",
+                result="ok",
+                reason="new_accepted_frame",
+                operation_id=self._scan_operation_id,
+                previous_point_count=previous_points,
+                previous_triangle_count=previous_triangles,
+            )
         self.scan_page.canvas.set_frame(
             image,
             points=processed.detection.points,
@@ -1857,9 +2177,19 @@ class MainWindow(QMainWindow):
         )
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
+            if not self._cloud_cleanup_applied:
+                try:
+                    self._ensure_raw_fused_spool(source)
+                except Exception as error:
+                    self.diagnostics.event(
+                        "raw_fused_cloud_spool_failed",
+                        failure=error,
+                        point_count=len(source.points),
+                    )
             cleaned = remove_statistical_outliers(source)
             removed = len(source.points) - len(cleaned.points)
             self.cleaned_cloud = cleaned
+            self._cloud_cleanup_applied = True
             self.mesh = None
             self.review_page.set_model(cleaned, None)
             self.review_page.summary.set_status(
@@ -1929,6 +2259,12 @@ class MainWindow(QMainWindow):
                     "rejected_frames": self.accumulator.rejected_frames,
                 },
             )
+            metadata_path = path.with_suffix(path.suffix + ".json")
+            write_export_metadata(
+                metadata_path,
+                self._export_metadata("editable_project", stage="manual_project"),
+            )
+            self._track_run_export(path, metadata_path, "editable_project")
             self.diagnostics.event("project_saved", result="ok", path=str(path))
         except Exception as error:
             self._error("Could not save project", str(error))
@@ -1948,6 +2284,9 @@ class MainWindow(QMainWindow):
             self.rebuild_reconstructor()
             self.cleaned_cloud = cloud
             self.mesh = None
+            self._discard_raw_fused_spool()
+            self._raw_fused_point_count = len(cloud.points)
+            self._cloud_cleanup_applied = False
             self.review_page.set_model(cloud, None)
             self.navigation.setCurrentRow(6)
             self.diagnostics.event("project_opened", result="ok", path=path_text)
@@ -1955,13 +2294,28 @@ class MainWindow(QMainWindow):
             self._error("Could not open project", str(error))
             self.diagnostics.event("project_open_failed", failure=error)
 
-    def _export_metadata(self, kind: str) -> dict[str, object]:
+    def _export_metadata(
+        self,
+        kind: str,
+        *,
+        cloud: PointCloud | None = None,
+        mesh: Mesh | None = None,
+        stage: str = "final",
+    ) -> dict[str, object]:
+        selected_cloud = self.cleaned_cloud if cloud is None else cloud
+        selected_mesh = self.mesh if mesh is None and kind != "point_cloud" else mesh
         return {
             "artifact": kind,
+            "stage": stage,
             "application_version": __version__,
-            "point_count": len(self.cleaned_cloud.points) if self.cleaned_cloud else 0,
-            "triangle_count": len(self.mesh.faces) if self.mesh else 0,
-            "mesh_is_watertight": is_watertight(self.mesh) if self.mesh else False,
+            "application_session_id": self.diagnostics.session_id,
+            "test_run_id": self._test_run_id,
+            "scan_operation_id": self._scan_operation_id,
+            "point_count": len(selected_cloud.points) if selected_cloud else 0,
+            "triangle_count": len(selected_mesh.faces) if selected_mesh else 0,
+            "mesh_is_watertight": (
+                is_watertight(selected_mesh) if selected_mesh else False
+            ),
             "warning": "Single-view measured surface; hidden backs are not present.",
         }
 
@@ -1987,6 +2341,25 @@ class MainWindow(QMainWindow):
         if path_text:
             self._run_export(Path(path_text), export_binary_stl, self.mesh, "surface_mesh")
 
+    def _track_run_export(self, path: Path, metadata_path: Path, kind: str) -> None:
+        """Keep one honest registry entry per mutable destination path."""
+
+        identity = str(path.resolve(strict=False)).casefold()
+        for index, (existing, _metadata, _kind) in enumerate(
+            self._run_exported_artifacts
+        ):
+            if str(existing.resolve(strict=False)).casefold() == identity:
+                self._run_exported_artifacts[index] = (path, metadata_path, kind)
+                self.diagnostics.event(
+                    "run_manual_export_registry_replaced",
+                    state="latest_file_at_destination",
+                    result="ok",
+                    destination_name=path.name,
+                    artifact=kind,
+                )
+                return
+        self._run_exported_artifacts.append((path, metadata_path, kind))
+
     def _run_export(self, path: Path, exporter: object, payload: object, kind: str) -> None:
         self._request_camera_snapshot(f"before_{kind}_export")
         self._log_frame_statistics(f"before_{kind}_export", force=True)
@@ -2000,7 +2373,9 @@ class MainWindow(QMainWindow):
         )
         try:
             exporter(path, payload)  # type: ignore[operator]
-            write_export_metadata(path.with_suffix(path.suffix + ".json"), self._export_metadata(kind))
+            metadata_path = path.with_suffix(path.suffix + ".json")
+            write_export_metadata(metadata_path, self._export_metadata(kind))
+            self._track_run_export(path, metadata_path, kind)
             self.diagnostics.event("model_exported", result="ok", path=str(path), format=path.suffix)
             QMessageBox.information(self, "Export complete", f"Saved:\n{path}")
         except Exception as error:
@@ -2012,6 +2387,547 @@ class MainWindow(QMainWindow):
                 format=path.suffix,
                 destination_name=path.name,
             )
+
+    def save_complete_test_run_bundle(self) -> None:
+        """Seal one physical test into a single validated, uploadable ZIP."""
+
+        run_id = self._test_run_id
+        if run_id is None:
+            self._error("No active test run", "Start a new test run first.")
+            return
+        if self._test_run_saved:
+            self._error(
+                "Test already saved",
+                "Start a new test run before collecting another independent test.",
+            )
+            return
+        worker_running = (
+            self.processing_worker is not None and self.processing_worker.isRunning()
+        )
+        if self.scanning or self._finish_pending or worker_running:
+            self._error(
+                "Finish the scan first",
+                "Press Finish and review, wait for queued frames to finish, then save the complete test ZIP.",
+            )
+            return
+        if self.cleaned_cloud is None or not len(self.cleaned_cloud.points):
+            self._error("No finished scan", "Finish a scan before saving the complete test ZIP.")
+            return
+        default_name = (
+            "LaserLine3D_complete_run_"
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{run_id[:8]}.zip"
+        )
+        path_text, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save complete physical test",
+            default_name,
+            "ZIP archive (*.zip)",
+        )
+        if not path_text:
+            return
+        image_choice = QMessageBox.question(
+            self,
+            "Include camera images?",
+            "The complete ZIP always includes diagnostics and every scan format. Include the current camera frame and laser-off background too?\n\n"
+            "Images may show your room or other private details. Review the ZIP before sharing.",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.No,
+        )
+        if image_choice == QMessageBox.StandardButton.Cancel:
+            return
+        include_images = image_choice == QMessageBox.StandardButton.Yes
+        destination = Path(path_text)
+        if destination.suffix.lower() != ".zip":
+            destination = destination.with_suffix(".zip")
+        if not self._test_run_finalized:
+            self._test_run_end_frame = (
+                self.latest_frame.copy() if self.latest_frame is not None else None
+            )
+            self._test_run_frozen_settings = self._run_settings_snapshot()
+        package_request: dict[str, object] = {
+            "attempt": len(self._run_package_requests) + 1,
+            "requested_utc": datetime.now().astimezone().isoformat(),
+            "destination_name": destination.name,
+            "include_private_images": include_images,
+            "status": "requested",
+        }
+        self._run_package_requests.append(package_request)
+        self.diagnostics.event(
+            "complete_run_bundle_export_requested",
+            action="Finish test and save complete ZIP",
+            request="Generate canonical scan artifacts and validated archive",
+            state="preparing",
+            result="started",
+            test_run_id=run_id,
+            destination_name=destination.name,
+            include_private_images=include_images,
+        )
+        progress = QProgressDialog(
+            "Preparing complete test package…", "Cancel", 0, 8, self
+        )
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setValue(0)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        def package_progress(phase: str, completed: int, total: int) -> None:
+            if total > 0:
+                detail = f"{completed / (1024 * 1024):.1f} of {total / (1024 * 1024):.1f} MiB"
+            else:
+                detail = "working"
+            progress.setLabelText(f"{phase}…\n{detail}")
+            QApplication.processEvents()
+
+        try:
+            if self.mesh is None:
+                try:
+                    self.diagnostics.event(
+                        "complete_run_mesh_creation_requested",
+                        state="processing",
+                        result="started",
+                        source_point_count=len(self.cleaned_cloud.points),
+                    )
+                    self.mesh = build_front_surface(self.cleaned_cloud)
+                    self.review_page.set_model(self.cleaned_cloud, self.mesh)
+                    self.diagnostics.event(
+                        "complete_run_mesh_created",
+                        state="review",
+                        result="ok",
+                        triangle_count=len(self.mesh.faces),
+                    )
+                except Exception as error:
+                    self.mesh = None
+                    self.diagnostics.event(
+                        "complete_run_mesh_creation_failed", failure=error
+                    )
+            progress.setValue(1)
+            QApplication.processEvents()
+
+            artifacts: list[RunBundleArtifact] = []
+            generation_failures: list[dict[str, str]] = []
+
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(
+                prefix="laserline3d-complete-run-", dir=destination.parent
+            ) as temporary:
+                staging = Path(temporary)
+
+                def stage_file(
+                    archive_path: str,
+                    *,
+                    role: str,
+                    stage: str,
+                    writer: object,
+                    relationship: ArtifactRelationship | None = None,
+                    required: bool = True,
+                    image_opt_in: bool = False,
+                ) -> Path | None:
+                    output = staging.joinpath(*archive_path.split("/"))
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        writer(output)  # type: ignore[operator]
+                        if not output.is_file():
+                            raise RuntimeError("artifact writer produced no file")
+                        artifacts.append(
+                            RunBundleArtifact(
+                                archive_path,
+                                output,
+                                role,
+                                stage,
+                                relationship=relationship,
+                                required=required,
+                                requires_image_opt_in=image_opt_in,
+                            )
+                        )
+                        return output
+                    except Exception as error:
+                        reason = f"{type(error).__name__}: {error}"
+                        generation_failures.append(
+                            {"archive_path": archive_path, "failure": reason}
+                        )
+                        artifacts.append(
+                            RunBundleArtifact(
+                                archive_path,
+                                None,
+                                role,
+                                stage,
+                                relationship=relationship,
+                                required=required,
+                                requires_image_opt_in=image_opt_in,
+                                missing_reason=reason,
+                            )
+                        )
+                        self.diagnostics.event(
+                            "complete_run_artifact_generation_failed",
+                            failure=error,
+                            archive_path=archive_path,
+                            role=role,
+                            stage=stage,
+                        )
+                        return None
+
+                final_cloud = self.cleaned_cloud
+                raw_cloud: PointCloud | None = None
+                raw_spool = self._raw_fused_spool_path
+                if (
+                    self._cloud_cleanup_applied
+                    and raw_spool is not None
+                    and raw_spool.is_file()
+                ):
+                    raw_point_count = self._raw_fused_point_count
+                    artifacts.append(
+                        RunBundleArtifact(
+                            "models/raw/fused-scan.ply",
+                            raw_spool,
+                            "point_cloud",
+                            "raw_fused",
+                        )
+                    )
+                else:
+                    if self._cloud_cleanup_applied and self.accumulator.accepted_frames:
+                        self.diagnostics.event(
+                            "raw_fused_cloud_rebuilt_for_bundle",
+                            state="fallback",
+                            result="started",
+                            reason="pre_cleanup_spool_unavailable",
+                        )
+                        raw_cloud = self.accumulator.cloud()
+                    else:
+                        raw_cloud = final_cloud
+                    raw_point_count = len(raw_cloud.points)
+                    self._raw_fused_point_count = raw_point_count
+                    stage_file(
+                        "models/raw/fused-scan.ply",
+                        role="point_cloud",
+                        stage="raw_fused",
+                        writer=lambda path: export_point_cloud_ply(path, raw_cloud),
+                    )
+                raw_metadata = self._export_metadata(
+                    "point_cloud",
+                    cloud=raw_cloud if raw_cloud is not None else final_cloud,
+                    mesh=None,
+                    stage="raw_fused",
+                )
+                raw_metadata["point_count"] = raw_point_count
+                stage_file(
+                    "models/raw/fused-scan.ply.json",
+                    role="metadata_sidecar",
+                    stage="raw_fused",
+                    relationship=ArtifactRelationship(
+                        "sidecar_for", "models/raw/fused-scan.ply"
+                    ),
+                    writer=lambda path: write_export_metadata(path, raw_metadata),
+                )
+                progress.setValue(2)
+                QApplication.processEvents()
+
+                stage_file(
+                    "models/final/scan.ply",
+                    role="point_cloud",
+                    stage="final_reviewed",
+                    writer=lambda path: export_point_cloud_ply(path, final_cloud),
+                )
+                stage_file(
+                    "models/final/scan.ply.json",
+                    role="metadata_sidecar",
+                    stage="final_reviewed",
+                    relationship=ArtifactRelationship(
+                        "sidecar_for", "models/final/scan.ply"
+                    ),
+                    writer=lambda path: write_export_metadata(
+                        path,
+                        self._export_metadata(
+                            "point_cloud", cloud=final_cloud, stage="final_reviewed"
+                        ),
+                    ),
+                )
+                progress.setValue(3)
+                QApplication.processEvents()
+
+                if self.mesh is not None:
+                    obj_writer = lambda path: export_obj(path, self.mesh)  # noqa: E731
+                    stl_writer = lambda path: export_binary_stl(path, self.mesh)  # noqa: E731
+                else:
+                    def obj_writer(_path: Path) -> None:
+                        raise RuntimeError("surface mesh could not be created")
+
+                    def stl_writer(_path: Path) -> None:
+                        raise RuntimeError("surface mesh could not be created")
+
+                stage_file(
+                    "models/final/scan.obj",
+                    role="surface_mesh",
+                    stage="final_reviewed",
+                    writer=obj_writer,
+                )
+                stage_file(
+                    "models/final/scan.obj.json",
+                    role="metadata_sidecar",
+                    stage="final_reviewed",
+                    relationship=ArtifactRelationship(
+                        "sidecar_for", "models/final/scan.obj"
+                    ),
+                    writer=lambda path: write_export_metadata(
+                        path, self._export_metadata("surface_mesh", stage="final_reviewed")
+                    ),
+                )
+                stage_file(
+                    "models/final/scan.stl",
+                    role="surface_mesh",
+                    stage="final_reviewed",
+                    writer=stl_writer,
+                )
+                stage_file(
+                    "models/final/scan.stl.json",
+                    role="metadata_sidecar",
+                    stage="final_reviewed",
+                    relationship=ArtifactRelationship(
+                        "sidecar_for", "models/final/scan.stl"
+                    ),
+                    writer=lambda path: write_export_metadata(
+                        path, self._export_metadata("surface_mesh", stage="final_reviewed")
+                    ),
+                )
+                progress.setValue(4)
+                QApplication.processEvents()
+
+                if self.camera_calibration is not None:
+                    stage_file(
+                        "calibration/camera.json",
+                        role="camera_calibration",
+                        stage="calibration",
+                        writer=lambda path: save_camera_calibration(
+                            path, self.camera_calibration
+                        ),
+                    )
+                else:
+                    artifacts.append(
+                        RunBundleArtifact(
+                            "calibration/camera.json",
+                            None,
+                            "camera_calibration",
+                            "calibration",
+                            missing_reason="camera calibration unavailable",
+                        )
+                    )
+                if self.corner_calibration is not None:
+                    stage_file(
+                        "calibration/corner.json",
+                        role="corner_calibration",
+                        stage="calibration",
+                        writer=lambda path: save_corner_calibration(
+                            path, self.corner_calibration
+                        ),
+                    )
+                else:
+                    artifacts.append(
+                        RunBundleArtifact(
+                            "calibration/corner.json",
+                            None,
+                            "corner_calibration",
+                            "calibration",
+                            missing_reason="corner calibration unavailable",
+                        )
+                    )
+                if self.camera_calibration is not None and self.corner_calibration is not None:
+                    stage_file(
+                        "project/scan.llscan",
+                        role="editable_project",
+                        stage="final_reviewed",
+                        writer=lambda path: save_project(
+                            path,
+                            final_cloud,
+                            self.camera_calibration,
+                            self.corner_calibration,
+                            name="complete-test-run",
+                            metadata=self._test_run_summary(),
+                        ),
+                    )
+                else:
+                    artifacts.append(
+                        RunBundleArtifact(
+                            "project/scan.llscan",
+                            None,
+                            "editable_project",
+                            "final_reviewed",
+                            missing_reason="calibration required for project file",
+                        )
+                    )
+                progress.setValue(5)
+                QApplication.processEvents()
+
+                for index, (model_path, metadata_path, kind) in enumerate(
+                    self._run_exported_artifacts, start=1
+                ):
+                    base = f"manual-exports/{index:03d}-{model_path.name}"
+                    artifacts.append(
+                        RunBundleArtifact(
+                            base,
+                            model_path,
+                            kind,
+                            "manual_export",
+                            required=False,
+                            missing_reason="manual export no longer exists",
+                        )
+                    )
+                    artifacts.append(
+                        RunBundleArtifact(
+                            f"{base}.json",
+                            metadata_path,
+                            "metadata_sidecar",
+                            "manual_export",
+                            relationship=ArtifactRelationship("sidecar_for", base),
+                            required=False,
+                            missing_reason="manual export sidecar no longer exists",
+                        )
+                    )
+
+                def write_image(path: Path, image: np.ndarray | None) -> None:
+                    if image is None or not cv2.imwrite(str(path), image):
+                        raise RuntimeError("camera image unavailable or could not be encoded")
+
+                if include_images:
+                    stage_file(
+                        "images/current-camera-frame.jpg",
+                        role="camera_image",
+                        stage="run_end",
+                        writer=lambda path: write_image(path, self._test_run_end_frame),
+                        required=False,
+                        image_opt_in=True,
+                    )
+                    stage_file(
+                        "images/laser-off-background.png",
+                        role="background_image",
+                        stage="laser_tuning",
+                        writer=lambda path: write_image(path, self.background),
+                        required=False,
+                        image_opt_in=True,
+                    )
+                else:
+                    for archive_path, role, stage_name in (
+                        ("images/current-camera-frame.jpg", "camera_image", "run_end"),
+                        ("images/laser-off-background.png", "background_image", "laser_tuning"),
+                    ):
+                        artifacts.append(
+                            RunBundleArtifact(
+                                archive_path,
+                                None,
+                                role,
+                                stage_name,
+                                required=False,
+                                requires_image_opt_in=True,
+                                missing_reason="user did not opt in",
+                            )
+                        )
+                progress.setValue(6)
+                QApplication.processEvents()
+
+                run_summary = self._test_run_summary()
+                run_summary["artifact_generation_failures"] = generation_failures
+                package_status = (
+                    "partial"
+                    if any(
+                        item.required
+                        and item.source_path is None
+                        and not item.requires_image_opt_in
+                        for item in artifacts
+                    )
+                    else "completed"
+                )
+                if not self._test_run_finalized:
+                    self.diagnostics.event(
+                        "complete_run_bundle_artifacts_prepared",
+                        state="ready_to_package",
+                        result=package_status,
+                        artifact_count=len(artifacts),
+                        generation_failure_count=len(generation_failures),
+                    )
+                    self.diagnostics.finish_test_run(
+                        status=package_status, summary=run_summary
+                    )
+                    self._test_run_finalized = True
+                run_metadata = self.diagnostics.test_run_metadata(run_id)
+                run_summary = {**run_metadata, **run_summary}
+                settings = (
+                    self._test_run_frozen_settings
+                    if self._test_run_frozen_settings is not None
+                    else self._run_settings_snapshot()
+                )
+                bundle = create_complete_run_bundle(
+                    destination,
+                    application_session_id=self.diagnostics.session_id,
+                    test_run_id=run_id,
+                    application_version=__version__,
+                    diagnostics_jsonl=self.diagnostics.test_run_snapshot(run_id),
+                    artifacts=artifacts,
+                    scan_operation_id=self._scan_operation_id,
+                    run_summary=run_summary,
+                    settings=settings,
+                    run_started_utc=run_metadata.get("started_utc"),
+                    run_finished_utc=run_metadata.get("finished_utc"),
+                    run_status=str(run_metadata.get("status", package_status)),
+                    include_private_images=include_images,
+                    progress_callback=package_progress,
+                    cancel_check=progress.wasCanceled,
+                )
+                progress.setValue(8)
+            package_request["status"] = "published"
+            self._test_run_saved = package_status == "completed"
+            self.diagnostics.event(
+                "complete_run_bundle_exported",
+                action="Finish test and save complete ZIP",
+                state="saved",
+                result="ok" if self._test_run_saved else "partial",
+                test_run_id=run_id,
+                destination_name=bundle.name,
+                included_private_images=include_images,
+            )
+            if self._test_run_saved:
+                self._update_test_run_status(
+                    "complete ZIP saved; start a new run for the next test"
+                )
+                QMessageBox.information(
+                    self,
+                    "Complete test saved",
+                    f"Saved one complete test package:\n{bundle}\n\n"
+                    "It contains the run diagnostics, project, PLY, OBJ, STL, JSON sidecars, settings, and integrity hashes. "
+                    "Start a new test run before changing the test setup.",
+                )
+            else:
+                self._update_test_run_status(
+                    "partial ZIP saved; missing artifacts are recorded and save can be retried"
+                )
+                QMessageBox.warning(
+                    self,
+                    "Partial test package saved",
+                    f"Saved a partial test package:\n{bundle}\n\n"
+                    "One or more required artifacts could not be created. The manifest records exactly what is missing. "
+                    "You can retry this save or start a new run after reviewing the package.",
+                )
+        except RunBundleCancelledError:
+            package_request["status"] = "cancelled"
+            self._update_test_run_status("ZIP save cancelled; you can retry")
+            self.diagnostics.event(
+                "complete_run_bundle_export_cancelled",
+                result="cancelled",
+                test_run_id=run_id,
+                destination_name=destination.name,
+            )
+        except Exception as error:
+            package_request["status"] = "failed"
+            package_request["failure_type"] = type(error).__name__
+            self._update_test_run_status("ZIP save failed; you can retry")
+            self.diagnostics.event(
+                "complete_run_bundle_export_failed",
+                failure=error,
+                test_run_id=run_id,
+                destination_name=destination.name,
+            )
+            self._error("Could not save complete test ZIP", str(error))
+        finally:
+            QApplication.restoreOverrideCursor()
+            progress.close()
 
     def run_synthetic_demo(self) -> None:
         progress = QProgressDialog("Running verified virtual camera scan…", "Cancel", 0, 28, self)
@@ -2055,8 +2971,12 @@ class MainWindow(QMainWindow):
                 raise RuntimeError(
                     f"Synthetic validation accepted only {accumulator.accepted_frames} frames"
                 )
+            self._discard_raw_fused_spool()
+            self._cloud_cleanup_applied = False
+            self._active_scan_settings = settings
             self.accumulator = accumulator
             self.cleaned_cloud = accumulator.cloud()
+            self._raw_fused_point_count = len(self.cleaned_cloud.points)
             self.mesh = build_front_surface(
                 self.cleaned_cloud, max_image_edge_px=45.0, max_world_edge_mm=24.0
             )
@@ -2107,6 +3027,23 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, title, message)
 
     def closeEvent(self, event: object) -> None:
+        if self.isVisible() and self._has_unsaved_test_evidence():
+            answer = QMessageBox.question(
+                self,
+                "Close without saving the test?",
+                "This test has evidence that has not been saved as a complete ZIP.\n\n"
+                "Close the application and leave this test unsaved?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.diagnostics.event(
+                    "application_close_cancelled",
+                    result="cancelled",
+                    reason="unsaved_test_evidence",
+                )
+                event.ignore()  # type: ignore[attr-defined]
+                return
         self.scanning = False
         self._camera_snapshot_timer.stop()
         application = QApplication.instance()
@@ -2118,6 +3055,7 @@ class MainWindow(QMainWindow):
         if self.camera_worker is not None and self.camera_worker.isRunning():
             self.camera_worker.request_stop()
             self.camera_worker.wait(3000)
+        self._discard_raw_fused_spool()
         self.diagnostics.event("application_closed", result="ok")
         event.accept()  # type: ignore[attr-defined]
 

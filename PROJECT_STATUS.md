@@ -40,24 +40,56 @@ Do not expand or interrupt the current approved Codex task or weaken existing
 geometry/recovery/diagnostic checks. Consult the scoped relevant sections
 of the ideas backlog only when planning user-approved features.
 
-## Recovery checkpoint — 2026-10-13
+## Recovery checkpoint — 2026-10-14
 
-- **Latest candidate:** 0.3.0, **USER TESTED / NOT VERIFIED**. Two physical
-  scans produced acceptable geometry and cleaner local point spacing, but both
-  stored all-black RGB. This is useful field evidence, not verification.
-- **Last user field evidence:** one 0.2.0 comparison scan and two 0.3.0 scans
-  were reviewed together. The geometry remained present in all exports. The
-  decisive color finding and sanitized metrics are in
-  `docs/FIELD_TEST_2026-10-13.md`.
-- **Current task:** comparison and diagnosis are complete. No code or build was
-  changed. The next proposed action, only after approval, is to separate the
-  laser-detection background from the surface-color reference and add a neutral
-  fallback for an unusably dark color reference.
+- **Latest candidate:** 0.4.0, **SOFTWARE TESTED / PHYSICAL TEST REQUIRED**.
+  Source and packaged checks pass, but density, color, scan quality, and the new
+  complete-run workflow still require the controlled scanner test below.
+- **Last user field evidence:** one 0.2.0 comparison and four 0.3.0 scan exports
+  were reviewed. Geometry remained present; an object-in-place illuminated
+  laser-off background restored measured color. Details are in
+  `docs/FIELD_TEST_2026-10-13.md` and the analysis below.
+- **Completed task:** 0.4.0 adds isolated physical-test runs, one final evidence
+  ZIP, conservative density/preview choices, and the cleanup/second-Finish fix.
+  Photo texturing and the other ideas in `docs/IDEAS_BACKLOG.md` remain deferred.
 - **Durable repository:** `https://github.com/auxz2jz/Slot-21`, branch `main`.
-  The final 0.3.0 source checkpoint commit is recorded below after publication.
+  The final source checkpoint is recorded after Git publication.
 - **Private evidence:** raw camera images, diagnostic archives, calibrations,
   scans, environments, and Windows binaries remain local and outside normal
-  Git history. No user scan or diagnostic file was deleted during this build.
+  Git history. No user scan or diagnostic file was deleted.
+
+## 0.4.0 completed scope
+
+Known-good starting point is the published 0.3.0 source commit
+`43ff46e438e73441db0519e7e30b2bc437c36d5d`; the documentation checkpoint at
+the start of this work is `34e72e3`. Git was clean and synchronized before
+modification.
+
+Newest physical evidence adds two illuminated 0.3.0 runs. `scan4.1` retained
+312,389 cleaned points with approximately 0.634 mm median nearest-neighbour
+spacing. Its object-in-place, laser-off frame restored measured surface color.
+The earlier `scan3` laser-off frame did not contain the object, so its non-black
+colors came from the lit fixture/background rather than the object itself.
+Corner-pose reprojection remained 3.43 px, so added density must not be described
+as added dimensional accuracy.
+
+Implemented and verified scope:
+
+1. Explicit per-test-run identity and bounded run-scoped diagnostic events.
+2. A separate, opt-in complete-run ZIP that streams and validates PLY, OBJ,
+   STL, matching JSON sidecars, project data, settings, diagnostics, hashes,
+   and optional user-approved camera/background images. Keep the compact support
+   ZIP and its privacy/size limits unchanged.
+3. Conservative Standard/Fine scan-density presets and visible counts for
+   acquired, fused/exported, and previewed points. Preserve geometry safety
+   thresholds and the two-million raw-point guard.
+4. A repeated Finish action no longer restores a cloud that the
+   user already cleaned.
+5. Raw fused data are preserved before cleanup; package retries are recorded;
+   partial archives identify missing files honestly; ZIP publication is atomic,
+   hashed, single-pass validated, free-space checked, and cancellable.
+6. Back-to-back runs preserve reusable calibration/background, clear prior scan
+   evidence, and warn before unsaved evidence is replaced or the app is closed.
 
 ## What 0.3.0 changes
 
@@ -136,6 +168,45 @@ without ground truth, and the 0.3.0 corner-pose reprojection errors (3.79 px and
 3.43 px) were worse than the 0.2.0 comparison (2.86 px), so calibration should
 be tightened before claiming sharper or more accurate geometry.
 
+## Software-tested 0.4.0 candidate baseline
+
+Build date: 2026-10-14 (America/Los_Angeles).
+
+- Python 3.12.14
+- NumPy 2.5.3
+- OpenCV 4.14.0.94 (headless runtime)
+- SciPy 1.18.1
+- PySide6 Essentials / Qt 6.12.0
+- PyInstaller 6.22.3 with hooks 2026.8
+- final build pipeline: 97/97 automated tests passed in 8.33 seconds
+- final coverage gate: 97/97 tests passed; 81.42% statement coverage with
+  75% required
+- source/prebuild and packaged scan/export self-tests passed: 24/28 frames
+  accepted, 4,316 fused points, 8,334 triangles, 1.4491 mm median synthetic
+  depth error
+- packaged Qt smoke passed: application version 0.4.0, real seven-page window,
+  Qt 6.12.0, both printables present
+- required `_internal/cv2/config.py` and `config-3.py` are present
+- published folder: `dist/LaserLine3D_0.4.0`
+- package: 346 files, 311,338,437 bytes
+- release ZIP:
+  `output/windows/LaserLine3D_Windows_0.4.0_2026-10-14.zip`
+- ZIP: 361 entries, 123,391,819 bytes; every entry passed decompression/CRC,
+  the archive has one `LaserLine3D_0.4.0` top-level folder, and the required
+  EXE/OpenCV configuration files are present
+- executable SHA-256:
+  `C0144B206778C46974A1947EB4BAADD1AFBBE990966CE93519185F017A4041D7`
+- release ZIP SHA-256:
+  `52B195DD3EECC77B3C1B0DF030CE29FD5E528EAA671FE110982414C50750B356`
+- the executable embedded in the ZIP has the same SHA-256 as the published EXE
+- maintainable source: Slot-21 `main`; exact release commit is recorded after
+  final Git publication
+
+This is a software-tested candidate, not a hardware-accuracy claim. The final
+diff received an independent focused review with no release-blocking findings.
+Very large canonical OBJ/STL/project staging is still synchronous; ZIP writing
+and validation report progress and can be cancelled safely.
+
 ## Software-tested 0.3.0 candidate baseline
 
 Build date: 2026-10-13 (America/Los_Angeles; UTC artifacts may show 2026-10-14).
@@ -210,19 +281,24 @@ subsequent complete pipeline passed and produced the hashes above.
 - Generic cross-camera exposure/focus/RGB/zoom sliders remain intentionally
   absent because driver support and units are not portable. Use the native
   Windows camera dialog; changing focus/zoom requires both calibrations again.
-- The support bundle still has no persistent in-app guided-test wizard or
-  generated TXT/JSON test report. The documented procedure and structured ZIP
-  are the current evidence path.
+- There is no persistent in-app guided-test wizard or generated prose test
+  report. The toolbar run boundary, structured complete-run ZIP, and documented
+  procedure are the current evidence path.
+- Very large OBJ/STL/`.llscan` generation can temporarily pause UI updates for
+  that individual file; archive writing/validation itself is progress-reported
+  and cancellable.
 - Clean-PC packaging has not yet been independently tested on a second Windows
   machine, and physical measurement accuracy remains unverified.
 
 ## Next validation gate
 
-1. Extract the 0.3.0 ZIP into a fresh directory; never merge `_internal` files.
+1. Extract the 0.4.0 ZIP into a fresh directory; never merge `_internal` files.
 2. Follow every step in `docs/TESTING.md`, including anchored zoom/pan,
-   readiness return/override, no-line watchdog, and diagnostics privacy checks.
+   Standard then Fine density, preview counts, readiness return/override,
+   repeated-Finish cleanup, and diagnostics privacy checks.
 3. Repeat controlled flat-card, known-block, and object scans with locked
    camera controls and unchanged lighting/fixture/ROI.
-4. Upload the new diagnostic ZIP and exports for comparison.
+4. Make **Finish test & save complete ZIP…** the last action for each run; upload
+   that single ZIP for comparison and start a new run before changing setup.
 5. Record a Windows hardware-verified baseline only if the physical checks and
    known-dimension measurements pass.

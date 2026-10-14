@@ -249,3 +249,93 @@ def test_support_bundle_skips_oversized_attachment(
         assert manifest["attachments"] == []
         assert "exceeds" in manifest["skipped_attachments"][0]["reason"]
         assert "attachments/oversized.bin" not in archive.namelist()
+
+
+def test_test_run_events_are_tagged_bounded_private_and_isolated(
+    tmp_path: Path,
+) -> None:
+    diagnostics = DiagnosticLog(tmp_path / "logs", app_version="run-test")
+    diagnostics.MAX_TEST_RUN_LOG_BYTES = 4096
+    diagnostics.event("outside_run", state="idle")
+
+    first_run = diagnostics.start_test_run()
+    for index in range(80):
+        diagnostics.event(
+            "run_sample",
+            sample=index,
+            path=str(Path.home() / "private" / f"sample-{index}.json"),
+            typed_text="must not be retained",
+        )
+    diagnostics.finish_test_run(summary={"result": "first"})
+    first_snapshot = diagnostics.test_run_snapshot(first_run)
+    first_records = [json.loads(line) for line in first_snapshot.splitlines()]
+
+    assert len(first_snapshot) <= diagnostics.MAX_TEST_RUN_LOG_BYTES
+    assert first_records[0]["event"] == "test_run_started"
+    assert first_records[-1]["event"] == "test_run_trace_summary"
+    assert all(record["test_run_id"] == first_run for record in first_records)
+    assert b"must not be retained" not in first_snapshot
+    assert str(Path.home()).encode() not in first_snapshot
+    assert b"%USERPROFILE%" in first_snapshot
+    first_metadata = diagnostics.test_run_metadata(first_run)
+    assert first_metadata["application_session_id"] == diagnostics.session_id
+    assert first_metadata["event_counts"]["run_sample"] == 80
+    assert first_metadata["dropped_record_count"] > 0
+
+    second_run = diagnostics.start_test_run()
+    diagnostics.event("second_run_only", result="ok")
+    diagnostics.finish_test_run(summary={"result": "second"})
+    second_snapshot = diagnostics.test_run_snapshot(second_run)
+
+    assert diagnostics.test_run_snapshot(first_run) == first_snapshot
+    assert first_run.encode() not in second_snapshot
+    assert b"second_run_only" in second_snapshot
+    assert b"outside_run" not in first_snapshot
+    assert b"outside_run" not in second_snapshot
+
+
+def test_test_run_rejects_overlapping_runs(tmp_path: Path) -> None:
+    diagnostics = DiagnosticLog(tmp_path / "logs")
+    run_id = diagnostics.start_test_run()
+
+    try:
+        diagnostics.start_test_run()
+    except RuntimeError as error:
+        assert "finish" in str(error)
+    else:
+        raise AssertionError("overlapping test runs must be rejected")
+
+    diagnostics.finish_test_run(status="cancelled")
+    records = [
+        json.loads(line) for line in diagnostics.test_run_snapshot(run_id).splitlines()
+    ]
+    assert any(record["event"] == "test_run_start_rejected" for record in records)
+
+
+def test_oversized_run_event_keeps_test_run_correlation(tmp_path: Path) -> None:
+    diagnostics = DiagnosticLog(tmp_path / "logs")
+    run_id = diagnostics.start_test_run()
+    large = "x" * 20_000
+    diagnostics.event(
+        "oversized_run_event",
+        action=large,
+        request=large,
+        state=large,
+        result=large,
+        payload=large,
+    )
+    diagnostics.finish_test_run()
+
+    records = [
+        json.loads(line) for line in diagnostics.test_run_snapshot(run_id).splitlines()
+    ]
+    oversized = next(record for record in records if record["event"] == "oversized_run_event")
+    assert oversized["test_run_id"] == run_id
+    assert oversized["details"]["payload_omitted"]
+
+
+def test_support_bundle_limits_remain_the_compact_diagnostic_limits() -> None:
+    assert DiagnosticLog.MAX_ATTACHMENT_COUNT == 8
+    assert DiagnosticLog.MAX_ATTACHMENT_BYTES == 16 * 1024 * 1024
+    assert DiagnosticLog.MAX_TOTAL_ATTACHMENT_BYTES == 32 * 1024 * 1024
+    assert DiagnosticLog.MAX_SUPPORT_BUNDLE_BYTES == 42 * 1024 * 1024
