@@ -223,10 +223,17 @@ class CameraPage(WizardPage):
             "Brightness",
             "Contrast",
             "Saturation",
+            "Hue",
+            "Gamma",
             "Sharpness",
+            "Backlight compensation",
             "Auto white balance",
             "White balance temperature",
+            "Sensor temperature",
+            "Iris",
             "Zoom",
+            "Video FourCC",
+            "Capture buffer size",
         )
         values = []
         for name in order:
@@ -336,6 +343,7 @@ class RigCalibrationPage(WizardPage):
     save_requested = Signal()
     load_requested = Signal()
     open_guide_requested = Signal()
+    interaction_event = Signal(object)
 
     LANDMARK_NAMES = [
         "LEFT outer edge - TOP mark",
@@ -411,6 +419,7 @@ class RigCalibrationPage(WizardPage):
         self.canvas = VideoCanvas("Freeze an image, then click the reference landmarks")
         self.canvas.point_clicked.connect(self.add_point)
         self.canvas.roi_changed.connect(self._roi_changed)
+        self.canvas.interaction_event.connect(self.interaction_event)
         view_buttons = QHBoxLayout()
         guide = QPushButton("Open illustrated setup guide")
         guide.clicked.connect(self.open_guide_requested)
@@ -422,7 +431,9 @@ class RigCalibrationPage(WizardPage):
         zoom_in.clicked.connect(self.canvas.zoom_in)
         view_buttons.addWidget(guide)
         view_buttons.addStretch()
-        view_buttons.addWidget(QLabel("Mouse wheel zooms; right-drag pans; left-click marks."))
+        view_buttons.addWidget(
+            QLabel("Wheel zooms at the pointer; drag with left/right/middle to pan; a short left-click marks.")
+        )
         view_buttons.addWidget(fit)
         view_buttons.addWidget(zoom_out)
         view_buttons.addWidget(zoom_in)
@@ -453,16 +464,29 @@ class RigCalibrationPage(WizardPage):
 
     def undo_point(self) -> None:
         if self.clicks:
-            self.clicks.pop()
+            removed = self.clicks.pop()
             self.canvas.set_landmarks(self.clicks)
             self.canvas.set_interaction_mode("point")
             self._update_prompt()
+            self.interaction_event.emit(
+                {
+                    "action": "point_undone",
+                    "removed_image_x": round(removed[0], 3),
+                    "removed_image_y": round(removed[1], 3),
+                    "remaining_points": len(self.clicks),
+                }
+            )
 
     def reset_points(self) -> None:
+        removed_count = len(self.clicks)
         self.clicks.clear()
         self.canvas.set_landmarks([])
         self.canvas.set_interaction_mode("point" if self.frozen_frame is not None else "none")
         self._update_prompt()
+        if removed_count:
+            self.interaction_event.emit(
+                {"action": "points_reset", "removed_points": removed_count}
+            )
 
     def _update_prompt(self) -> None:
         if len(self.clicks) < 6:
@@ -769,15 +793,35 @@ class ScanPage(WizardPage):
             if self._scan_state != "scanning":
                 self.set_scan_state(self._scan_state, has_data=True)
         ref_good = quality.left_reference_points > 0 and quality.right_reference_points > 0
+        span_text = ""
+        if quality.plane_left_span_mm is not None and quality.plane_right_span_mm is not None:
+            span_text = (
+                f" • spans {quality.plane_left_span_mm:.0f}/{quality.plane_right_span_mm:.0f} mm"
+            )
         self.reference.set_status(
-            f"Left {quality.left_reference_points} • Right {quality.right_reference_points}",
+            f"Left {quality.left_reference_points} • Right {quality.right_reference_points}{span_text}",
             "good" if ref_good else "bad",
         )
         if quality.plane_rms_mm is None:
-            self.laser.set_status("No stable plane", "bad")
+            support = (
+                f" • attempted support {quality.support_ratio:.5f}"
+                if quality.support_ratio is not None
+                else ""
+            )
+            self.laser.set_status(f"No stable plane{support}", "bad")
         else:
+            support = (
+                f" • support {quality.support_ratio:.5f}"
+                if quality.support_ratio is not None
+                else ""
+            )
+            angle = (
+                f" • angle {quality.median_triangulation_angle_deg:.1f}°"
+                if quality.median_triangulation_angle_deg is not None
+                else ""
+            )
             self.laser.set_status(
-                f"Fit RMS {quality.plane_rms_mm:.2f} mm",
+                f"Fit RMS {quality.plane_rms_mm:.2f} mm{support}{angle}",
                 "good" if quality.accepted else "warning",
             )
         self.coverage.set_status(

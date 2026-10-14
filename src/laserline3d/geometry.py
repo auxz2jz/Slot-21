@@ -12,6 +12,7 @@ from .models import CameraCalibration, CornerCalibration, FloatArray
 
 
 EPSILON = 1e-9
+MIN_PLANE_SUPPORT_RATIO = 0.003
 
 
 def corner_landmarks(
@@ -177,6 +178,142 @@ class PlaneFit:
     inliers: NDArray[np.bool_]
     support_ratio: float
     normal_uncertainty_deg: float
+    evidence: "PlaneFitEvidence | None" = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlaneFitEvidence:
+    """JSON-safe evidence describing a laser-plane fit attempt.
+
+    The evidence is intentionally retained when a fit is rejected.  This lets
+    support bundles distinguish a genuinely noisy line from reference samples
+    that are nearly collinear and therefore cannot define a unique plane.
+    """
+
+    reference_point_count: int
+    left_reference_count: int
+    right_reference_count: int
+    iterations_attempted: int
+    valid_model_count: int
+    inlier_count: int = 0
+    left_inlier_count: int = 0
+    right_inlier_count: int = 0
+    rms_mm: float | None = None
+    median_residual_mm: float | None = None
+    support_ratio: float | None = None
+    covariance_eigenvalues_mm2: tuple[float, float, float] | None = None
+    left_inlier_span_mm: float | None = None
+    right_inlier_span_mm: float | None = None
+    normal_uncertainty_deg: float | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Return stable primitive values suitable for diagnostics JSON."""
+
+        return {
+            "reference_point_count": self.reference_point_count,
+            "left_reference_count": self.left_reference_count,
+            "right_reference_count": self.right_reference_count,
+            "iterations_attempted": self.iterations_attempted,
+            "valid_model_count": self.valid_model_count,
+            "inlier_count": self.inlier_count,
+            "left_inlier_count": self.left_inlier_count,
+            "right_inlier_count": self.right_inlier_count,
+            "rms_mm": self.rms_mm,
+            "median_residual_mm": self.median_residual_mm,
+            "support_ratio": self.support_ratio,
+            "covariance_eigenvalues_mm2": (
+                list(self.covariance_eigenvalues_mm2)
+                if self.covariance_eigenvalues_mm2 is not None
+                else None
+            ),
+            "left_inlier_span_mm": self.left_inlier_span_mm,
+            "right_inlier_span_mm": self.right_inlier_span_mm,
+            "normal_uncertainty_deg": self.normal_uncertainty_deg,
+        }
+
+
+class PlaneFitError(RuntimeError):
+    """A rejected plane fit that still carries its quantitative evidence."""
+
+    def __init__(
+        self, message: str, *, reason_code: str, evidence: PlaneFitEvidence
+    ) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+        self.evidence = evidence
+
+
+def _principal_span_mm(points: FloatArray) -> float:
+    if len(points) < 2:
+        return 0.0
+    centered = points - points.mean(axis=0)
+    try:
+        _, _, vh = np.linalg.svd(centered, full_matrices=False)
+    except np.linalg.LinAlgError:
+        return float(np.linalg.norm(np.ptp(points, axis=0)))
+    coordinates = centered @ vh[0]
+    return float(np.ptp(coordinates))
+
+
+def _plane_fit_evidence(
+    points: FloatArray,
+    labels: NDArray[np.int8],
+    mask: NDArray[np.bool_] | None,
+    *,
+    iterations_attempted: int,
+    valid_model_count: int,
+) -> tuple[PlaneFitEvidence, FloatArray | None]:
+    """Measure the best available model without deciding whether to accept it."""
+
+    base = {
+        "reference_point_count": int(len(points)),
+        "left_reference_count": int(np.sum(labels == 0)),
+        "right_reference_count": int(np.sum(labels == 1)),
+        "iterations_attempted": int(iterations_attempted),
+        "valid_model_count": int(valid_model_count),
+    }
+    if mask is None or int(mask.sum()) < 3:
+        return PlaneFitEvidence(**base), None
+
+    support = points[mask]
+    try:
+        plane, rms = fit_plane_svd(support)
+    except (ValueError, np.linalg.LinAlgError):
+        return (
+            PlaneFitEvidence(
+                **base,
+                inlier_count=int(mask.sum()),
+                left_inlier_count=int(np.sum(mask & (labels == 0))),
+                right_inlier_count=int(np.sum(mask & (labels == 1))),
+            ),
+            None,
+        )
+    residuals = np.abs(support @ plane[:3] + plane[3])
+    centered = support - support.mean(axis=0)
+    covariance = centered.T @ centered / max(1, len(support))
+    eigenvalues = np.sort(np.maximum(np.linalg.eigvalsh(covariance), 0.0))
+    support_ratio = float(eigenvalues[1] / max(eigenvalues[2], EPSILON))
+    normal_uncertainty = float(
+        np.degrees(np.arctan2(rms, np.sqrt(max(eigenvalues[1], EPSILON))))
+    )
+    left_support = points[mask & (labels == 0)]
+    right_support = points[mask & (labels == 1)]
+    return (
+        PlaneFitEvidence(
+            **base,
+            inlier_count=int(mask.sum()),
+            left_inlier_count=int(len(left_support)),
+            right_inlier_count=int(len(right_support)),
+            rms_mm=float(rms),
+            median_residual_mm=float(np.median(residuals)),
+            support_ratio=support_ratio,
+            covariance_eigenvalues_mm2=tuple(float(value) for value in eigenvalues),
+            left_inlier_span_mm=_principal_span_mm(left_support),
+            right_inlier_span_mm=_principal_span_mm(right_support),
+            normal_uncertainty_deg=normal_uncertainty,
+        ),
+        plane,
+    )
 
 
 def fit_laser_plane_ransac(
@@ -197,7 +334,10 @@ def fit_laser_plane_ransac(
         raise ValueError("Laser plane requires samples from both reference walls")
     rng = np.random.default_rng(seed)
     best_mask: NDArray[np.bool_] | None = None
+    best_attempt_mask: NDArray[np.bool_] | None = None
     best_score = (-1, -np.inf)
+    best_attempt_score = (-1, -np.inf)
+    valid_model_count = 0
     for _ in range(iterations):
         if rng.random() < 0.5:
             sample = np.r_[rng.choice(left, 2, replace=False), rng.choice(right, 1)]
@@ -207,8 +347,17 @@ def fit_laser_plane_ransac(
             plane, _ = fit_plane_svd(pts[sample])
         except np.linalg.LinAlgError:
             continue
+        valid_model_count += 1
         distances = np.abs(pts @ plane[:3] + plane[3])
         mask = distances <= distance_threshold_mm
+        attempt_count = int(mask.sum())
+        attempt_median = (
+            float(np.median(distances[mask])) if attempt_count else float("inf")
+        )
+        attempt_score = (attempt_count, -attempt_median)
+        if attempt_score > best_attempt_score:
+            best_attempt_score = attempt_score
+            best_attempt_mask = mask
         left_count = int(np.sum(mask & (groups == 0)))
         right_count = int(np.sum(mask & (groups == 1)))
         if min(left_count, right_count) < 2:
@@ -220,26 +369,44 @@ def fit_laser_plane_ransac(
             best_score = score
             best_mask = mask
     if best_mask is None or int(best_mask.sum()) < 6:
-        raise RuntimeError("No stable laser plane could be fitted")
-    support = pts[best_mask]
-    plane, rms = fit_plane_svd(support)
-    centered = support - support.mean(axis=0)
-    covariance = centered.T @ centered / max(1, len(support))
-    eigenvalues = np.sort(np.maximum(np.linalg.eigvalsh(covariance), 0.0))
-    support_ratio = float(eigenvalues[1] / max(eigenvalues[2], EPSILON))
-    if support_ratio < 0.003:
-        raise RuntimeError(
-            "Reference support is nearly one line; the current laser plane is ambiguous"
+        evidence, _ = _plane_fit_evidence(
+            pts,
+            groups,
+            best_attempt_mask,
+            iterations_attempted=iterations,
+            valid_model_count=valid_model_count,
         )
-    normal_uncertainty = float(
-        np.degrees(np.arctan2(rms, np.sqrt(max(eigenvalues[1], EPSILON))))
+        raise PlaneFitError(
+            "No stable laser plane could be fitted",
+            reason_code="laser_plane_no_stable_model",
+            evidence=evidence,
+        )
+    evidence, plane = _plane_fit_evidence(
+        pts,
+        groups,
+        best_mask,
+        iterations_attempted=iterations,
+        valid_model_count=valid_model_count,
     )
+    if plane is None or evidence.rms_mm is None or evidence.support_ratio is None:
+        raise PlaneFitError(
+            "The laser plane could not be refined from its inliers",
+            reason_code="laser_plane_refinement_failed",
+            evidence=evidence,
+        )
+    if evidence.support_ratio < MIN_PLANE_SUPPORT_RATIO:
+        raise PlaneFitError(
+            "Reference support is nearly one line; the current laser plane is ambiguous",
+            reason_code="laser_plane_degenerate_support",
+            evidence=evidence,
+        )
     return PlaneFit(
         plane=plane,
-        rms_mm=rms,
+        rms_mm=evidence.rms_mm,
         inliers=best_mask,
-        support_ratio=support_ratio,
-        normal_uncertainty_deg=normal_uncertainty,
+        support_ratio=evidence.support_ratio,
+        normal_uncertainty_deg=float(evidence.normal_uncertainty_deg or 0.0),
+        evidence=evidence,
     )
 
 

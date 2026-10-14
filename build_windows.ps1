@@ -6,8 +6,19 @@ if (-not (Test-Path -LiteralPath $python)) {
     throw 'Run install_windows.bat before building.'
 }
 & $python -m pip install -e '.[build]'
-& $python -m pytest
+if ($LASTEXITCODE -ne 0) {
+    throw "Dependency installation failed with exit code $LASTEXITCODE."
+}
+$pytestRunId = [Guid]::NewGuid().ToString('N')
+$pytestTemp = Join-Path $projectRoot "test_reports\pytest_build_temp_$pytestRunId"
+& $python -m pytest -p no:cacheprovider --basetemp $pytestTemp
+if ($LASTEXITCODE -ne 0) {
+    throw "Source test suite failed with exit code $LASTEXITCODE."
+}
 & $python -m laserline3d --self-test --self-test-output (Join-Path $projectRoot 'test_reports\prebuild_self_test')
+if ($LASTEXITCODE -ne 0) {
+    throw "Source scan/export self-test failed with exit code $LASTEXITCODE."
+}
 
 # Build away from the published folder. PyInstaller removes an existing output
 # directory before collecting files; if the app is running, that can otherwise
@@ -23,6 +34,9 @@ if (Test-Path -LiteralPath $stagingRoot) {
     Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
 }
 & $python -m PyInstaller --clean --noconfirm --distpath $stagingRoot (Join-Path $projectRoot 'packaging\LaserLine3D.spec')
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller build failed with exit code $LASTEXITCODE."
+}
 
 $packagedExe = Join-Path $stagedPackage 'LaserLine3D.exe'
 foreach ($required in @(
@@ -62,11 +76,19 @@ if (Get-Process -Name LaserLine3D -ErrorAction SilentlyContinue) {
 }
 
 $distRoot = Join-Path $projectRoot 'dist'
-$publishedPackage = Join-Path $distRoot 'LaserLine3D'
+$applicationVersion = (& $python -c 'import laserline3d; print(laserline3d.__version__)').Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to read the application version (exit code $LASTEXITCODE)."
+}
+if ($applicationVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Unexpected application version: $applicationVersion"
+}
+$publishedName = "LaserLine3D_$applicationVersion"
+$publishedPackage = Join-Path $distRoot $publishedName
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
 $backupPackage = $null
 if (Test-Path -LiteralPath $publishedPackage) {
-    $backupPackage = Join-Path $distRoot ("LaserLine3D_previous_" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    $backupPackage = Join-Path $distRoot ($publishedName + "_previous_" + (Get-Date -Format 'yyyyMMdd_HHmmss'))
     Move-Item -LiteralPath $publishedPackage -Destination $backupPackage
 }
 try {
@@ -77,6 +99,7 @@ try {
     }
     throw
 }
+Set-Content -LiteralPath (Join-Path $distRoot 'CURRENT_PACKAGE.txt') -Value $publishedName -Encoding ascii
 
 Write-Host "Build complete: $publishedPackage"
 if ($backupPackage) {

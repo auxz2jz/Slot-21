@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -77,6 +78,7 @@ class CameraWorker(QThread):
                 "height": int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
                 "fps": float(capture.get(cv2.CAP_PROP_FPS)),
                 "properties": reported_properties,
+                "property_evidence": describe_camera_properties(reported_properties),
             }
             self.camera_opened.emit(actual)
             self.properties_reported.emit(reported_properties)
@@ -127,16 +129,23 @@ def camera_property_ids() -> dict[str, int]:
         "Brightness": cv2.CAP_PROP_BRIGHTNESS,
         "Contrast": cv2.CAP_PROP_CONTRAST,
         "Saturation": cv2.CAP_PROP_SATURATION,
+        "Hue": cv2.CAP_PROP_HUE,
+        "Gamma": cv2.CAP_PROP_GAMMA,
         "Sharpness": cv2.CAP_PROP_SHARPNESS,
+        "Backlight compensation": cv2.CAP_PROP_BACKLIGHT,
         "Autofocus": cv2.CAP_PROP_AUTOFOCUS,
         "Focus": cv2.CAP_PROP_FOCUS,
         "Auto white balance": cv2.CAP_PROP_AUTO_WB,
         "White balance temperature": cv2.CAP_PROP_WB_TEMPERATURE,
+        "Sensor temperature": cv2.CAP_PROP_TEMPERATURE,
+        "Iris": cv2.CAP_PROP_IRIS,
         "Zoom": cv2.CAP_PROP_ZOOM,
+        "Video FourCC": cv2.CAP_PROP_FOURCC,
+        "Capture buffer size": cv2.CAP_PROP_BUFFERSIZE,
     }
 
 
-def read_camera_properties(capture: Any) -> dict[str, float]:
+def read_camera_properties(capture: Any) -> dict[str, float | None]:
     """Read raw driver values without claiming that zero means supported/off.
 
     OpenCV camera-property availability and ranges depend on the selected
@@ -144,7 +153,63 @@ def read_camera_properties(capture: Any) -> dict[str, float]:
     place to change them; this snapshot is diagnostic evidence only.
     """
 
-    return {
-        name: float(capture.get(property_id))
-        for name, property_id in camera_property_ids().items()
-    }
+    values: dict[str, float | None] = {}
+    for name, property_id in camera_property_ids().items():
+        try:
+            value = float(capture.get(property_id))
+        except (AttributeError, TypeError, ValueError, cv2.error):
+            value = None
+        values[name] = value
+    return values
+
+
+def camera_property_value_status(value: object) -> str:
+    """Classify a raw OpenCV property value without overstating support.
+
+    OpenCV specifies ``0`` as the usual value returned for an unsupported
+    property, but zero is also legitimate for controls such as gain and hue.
+    Non-finite values and read failures are unambiguously unavailable; zero is
+    deliberately labelled ambiguous rather than incorrectly called supported.
+    """
+
+    if value is None:
+        return "unavailable"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "unavailable"
+    if not math.isfinite(numeric):
+        return "unavailable"
+    if numeric == 0.0:
+        return "zero_or_unsupported"
+    return "reported"
+
+
+def describe_camera_properties(
+    properties: dict[str, float | None],
+) -> dict[str, dict[str, object]]:
+    """Add property IDs and support caveats to a raw driver snapshot."""
+
+    identifiers = camera_property_ids()
+    evidence: dict[str, dict[str, object]] = {}
+    for name, property_id in identifiers.items():
+        value = properties.get(name)
+        item: dict[str, object] = {
+            "property_id": int(property_id),
+            "raw_value": value if value is not None and math.isfinite(value) else None,
+            "status": camera_property_value_status(value),
+        }
+        if name == "Video FourCC" and item["status"] == "reported":
+            item["decoded_fourcc"] = decode_fourcc(float(value))
+        evidence[name] = item
+    return evidence
+
+
+def decode_fourcc(value: float) -> str | None:
+    """Decode a numeric FourCC when it contains four printable ASCII bytes."""
+
+    if not math.isfinite(value) or value <= 0:
+        return None
+    integer = int(round(value))
+    decoded = "".join(chr((integer >> (8 * offset)) & 0xFF) for offset in range(4))
+    return decoded if all(32 <= ord(character) <= 126 for character in decoded) else None

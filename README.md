@@ -50,12 +50,19 @@ the object in every accepted frame.
 
 ## Install and run from source
 
-A software-tested Windows 0.2.0 **candidate** is available at
-`dist/LaserLine3D/LaserLine3D.exe`, with the complete release ZIP in
-`output/windows/LaserLine3D_Tuning_Diagnostics_Update_0.2.0_2026-10-12.zip`. Keep the
+A software-tested Windows 0.3.0 **corrective candidate** is available at
+`dist/LaserLine3D_0.3.0/LaserLine3D.exe`, with the complete release ZIP in
+`output/windows/LaserLine3D_Corrective_Diagnostics_0.3.0_2026-10-13.zip`. Keep the
 complete `LaserLine3D` folder together; the executable depends on the adjacent
 `_internal` files. `run_scanner.bat` uses this packaged copy when it is present
 and falls back to the source environment only when no package exists.
+
+Version 0.3.0 responds to the first two 0.2.0 field scans. It adds anchored
+corner-image zoom and click-versus-drag panning, a warned scan-readiness gate,
+specific triangulation failure codes, inside/outside-ROI evidence, automatic
+camera-property snapshots, privacy-safe image statistics, an eight-MiB bounded
+session log, and a no-line scan watchdog. It is software tested but remains
+hardware unverified until the guided retest passes.
 
 If an older package reports `DLL load failed while importing QtCore`, discard
 that entire old package folder and use the newly built folder. Do not copy only
@@ -88,7 +95,8 @@ Run the hardware-independent verification suite with:
    varied positions, distances, and tilts. Run calibration and save it.
 3. **Empty-corner setup** – remove the object, turn the laser off, enter the
    measured V dimensions, freeze a clear image, and click the six prompted
-   marks. Zoom and pan as needed, then solve the pose.
+   marks. The wheel zooms at the pointer; a short left-click marks, while a
+   left/right/middle drag pans without adding a point. Then solve the pose.
 4. **Object area** – place the object without moving the camera or V. Click
    **Capture object view for green box**, then drag a tight rectangle around
    only the object. Wall stripe outside the box remains reference data.
@@ -97,9 +105,11 @@ Run the hardware-independent verification suite with:
    capture the 15-frame background, then turn it on. Start with **Auto-suggest**
    or **Restore defaults** and tune for one thin continuous detected trace.
 6. **Scan** – start capture and sweep slowly without moving the object, camera,
-   or V. The UI reports whether both wall references are visible and rejects
-   invalid frames. Pausing does not align a repositioned object; scan each side
-   as a separate pass.
+   or V. Start requires five recent stable preview frames, adequate reference
+   support, and a matching background, or an explicit diagnostic-run override.
+   The UI reports wall counts, spans, support, plane residual, and angle while
+   rejecting invalid frames. Pausing does not align a repositioned object;
+   scan each side as a separate pass.
 7. **Review/export** – clean the cloud, build a front-surface mesh, save the
    project, then export PLY, OBJ, or STL.
 
@@ -107,8 +117,8 @@ Detailed construction and calibration guidance is in
 [`docs/HARDWARE_AND_CALIBRATION.md`](docs/HARDWARE_AND_CALIBRATION.md), with a
 printable illustrated version in the
 [calibration and corner setup guide](output/pdf/LaserLine3D_Calibration_and_Corner_Setup_Guide.pdf).
-Use the exact [Test This Version procedure](docs/TESTING.md) for the first
-0.2.0 hardware run. Diagnostic event and privacy coverage is recorded in the
+Use the exact [Test This Version procedure](docs/TESTING.md) for the corrective
+0.3.0 hardware run. Diagnostic event and privacy coverage is recorded in the
 [diagnostic coverage map](docs/DIAGNOSTIC_COVERAGE.md).
 
 ## Accuracy expectations
@@ -120,7 +130,11 @@ surface. Rotate and scan the object from additional fixed setups if all sides
 are needed; finish each side as a separate scan. Automatic multi-view
 registration is intentionally not claimed in the first release. Use **Save
 diagnostics ZIP...** after a problem to package the session log, settings, and
-scan-quality history for troubleshooting.
+scan-quality history for troubleshooting. Diagnostics record aggregate color,
+hue, exposure/clipping, contrast, sharpness, camera-property, reference, and
+inside/outside-ROI measurements. In-app key presses are recorded only as safe
+command categories and target controls; typed text, clipboard contents, global
+activity, camera images, and point clouds are not collected implicitly.
 
 ## Project status
 

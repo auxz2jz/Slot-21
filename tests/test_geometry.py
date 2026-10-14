@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 
 from laserline3d.geometry import (
+    MIN_PLANE_SUPPORT_RATIO,
+    PlaneFitError,
     corner_wall_planes_world,
     fit_corner_pose,
     fit_laser_plane_ransac,
@@ -75,6 +77,44 @@ def test_robust_laser_plane_with_outliers() -> None:
     assert angular < 0.2
     assert fit.rms_mm < 0.3
     assert fit.support_ratio > 0.003
+    assert fit.evidence is not None
+    assert fit.evidence.inlier_count == int(fit.inliers.sum())
+    assert fit.evidence.left_inlier_count >= 60
+    assert fit.evidence.right_inlier_count >= 60
+    assert fit.evidence.median_residual_mm is not None
+    assert fit.evidence.covariance_eigenvalues_mm2 is not None
+    assert fit.evidence.left_inlier_span_mm is not None
+    assert fit.evidence.right_inlier_span_mm is not None
+
+
+def test_degenerate_plane_error_retains_attempt_evidence() -> None:
+    coordinate = np.r_[
+        np.linspace(-220.0, -20.0, 30), np.linspace(20.0, 220.0, 30)
+    ]
+    points = np.column_stack(
+        (coordinate, 80.0 + 0.12 * coordinate, 150.0 + 0.4 * coordinate)
+    )
+    labels = np.r_[np.zeros(30, dtype=np.int8), np.ones(30, dtype=np.int8)]
+
+    try:
+        fit_laser_plane_ransac(points, labels, 0.5, iterations=80)
+    except PlaneFitError as error:
+        assert error.reason_code == "laser_plane_degenerate_support"
+        assert error.evidence.reference_point_count == 60
+        assert error.evidence.inlier_count == 60
+        assert error.evidence.left_inlier_count == 30
+        assert error.evidence.right_inlier_count == 30
+        assert error.evidence.support_ratio is not None
+        assert error.evidence.support_ratio < MIN_PLANE_SUPPORT_RATIO
+        assert error.evidence.covariance_eigenvalues_mm2 is not None
+        assert error.evidence.left_inlier_span_mm > 0
+        assert error.evidence.right_inlier_span_mm > 0
+        assert (
+            error.evidence.to_dict()["support_ratio"]
+            == error.evidence.support_ratio
+        )
+    else:
+        raise AssertionError("Expected collinear reference support to be rejected")
 
 
 def test_parallel_and_behind_rays_are_invalid() -> None:

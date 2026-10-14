@@ -1,10 +1,15 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-if exist "dist\LaserLine3D\LaserLine3D.exe" (
-  if not exist "dist\LaserLine3D\_internal\cv2\config.py" goto :broken_package
-  if not exist "dist\LaserLine3D\_internal\cv2\config-3.py" goto :broken_package
-  start "LaserLine 3D" "dist\LaserLine3D\LaserLine3D.exe"
+set "PACKAGE_DIR=dist\LaserLine3D"
+if exist "dist\CURRENT_PACKAGE.txt" (
+  set /p PACKAGE_NAME=<"dist\CURRENT_PACKAGE.txt"
+  if defined PACKAGE_NAME set "PACKAGE_DIR=dist\!PACKAGE_NAME!"
+)
+if exist "%PACKAGE_DIR%\LaserLine3D.exe" (
+  if not exist "%PACKAGE_DIR%\_internal\cv2\config.py" goto :broken_package
+  if not exist "%PACKAGE_DIR%\_internal\cv2\config-3.py" goto :broken_package
+  start "LaserLine 3D" "%PACKAGE_DIR%\LaserLine3D.exe"
   exit /b 0
 )
 if not exist ".venv\Scripts\pythonw.exe" (

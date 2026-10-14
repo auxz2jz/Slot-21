@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QPixmap,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from ..models import Mesh, PointCloud
 
@@ -24,6 +24,7 @@ from ..models import Mesh, PointCloud
 class VideoCanvas(QWidget):
     point_clicked = Signal(float, float)
     roi_changed = Signal(object)
+    interaction_event = Signal(object)
 
     def __init__(self, placeholder: str = "Camera preview") -> None:
         super().__init__()
@@ -45,6 +46,8 @@ class VideoCanvas(QWidget):
         self._view_pan = QPointF(0.0, 0.0)
         self._pan_drag_start: QPointF | None = None
         self._pan_drag_origin = QPointF(0.0, 0.0)
+        self._active_pan_button: Qt.MouseButton | None = None
+        self._left_press_position: QPointF | None = None
 
     def set_frame(
         self,
@@ -84,7 +87,8 @@ class VideoCanvas(QWidget):
         if mode not in {"none", "point", "roi"}:
             raise ValueError(mode)
         self._mode = mode
-        self.setCursor(Qt.CrossCursor if mode != "none" else Qt.ArrowCursor)
+        self._cancel_pointer_interaction()
+        self._restore_cursor()
 
     @property
     def view_zoom(self) -> float:
@@ -94,22 +98,108 @@ class VideoCanvas(QWidget):
     def interaction_mode(self) -> str:
         return self._mode
 
+    def view_state(self) -> dict[str, float]:
+        """Return non-image view geometry for diagnostics and reproducibility."""
+
+        return {
+            "zoom": round(self._view_zoom, 6),
+            "pan_x": round(self._view_pan.x(), 3),
+            "pan_y": round(self._view_pan.y(), 3),
+        }
+
     def reset_view(self) -> None:
+        changed = self._view_zoom != 1.0 or not self._view_pan.isNull()
         self._view_zoom = 1.0
         self._view_pan = QPointF(0.0, 0.0)
         self.update()
+        self.interaction_event.emit(
+            {
+                "action": "view_reset",
+                "mode": self._mode,
+                "changed": changed,
+                "zoom": self._view_zoom,
+                "pan_x": 0.0,
+                "pan_y": 0.0,
+            }
+        )
 
     def zoom_in(self) -> None:
-        self._set_view_zoom(self._view_zoom * 1.35)
+        self._set_view_zoom(
+            self._view_zoom * 1.35,
+            QPointF(self.width() / 2.0, self.height() / 2.0),
+            source="button_in",
+        )
 
     def zoom_out(self) -> None:
-        self._set_view_zoom(self._view_zoom / 1.35)
+        self._set_view_zoom(
+            self._view_zoom / 1.35,
+            QPointF(self.width() / 2.0, self.height() / 2.0),
+            source="button_out",
+        )
 
-    def _set_view_zoom(self, value: float) -> None:
-        self._view_zoom = float(np.clip(value, 1.0, 8.0))
+    def _target_rect(self) -> QRectF:
+        if self._image_size[0] <= 0 or self.width() <= 0 or self.height() <= 0:
+            return QRectF()
+        fitted = _fit_rect(self.width(), self.height(), *self._image_size)
+        center = fitted.center() + self._view_pan
+        return QRectF(
+            center.x() - fitted.width() * self._view_zoom / 2.0,
+            center.y() - fitted.height() * self._view_zoom / 2.0,
+            fitted.width() * self._view_zoom,
+            fitted.height() * self._view_zoom,
+        )
+
+    def _set_view_zoom(
+        self,
+        value: float,
+        anchor: QPointF | None = None,
+        *,
+        source: str = "programmatic",
+    ) -> None:
+        old_zoom = self._view_zoom
+        new_zoom = float(np.clip(value, 1.0, 8.0))
+        old_target = self._target_rect()
+        anchor = (
+            QPointF(anchor)
+            if anchor is not None
+            else QPointF(self.width() / 2, self.height() / 2)
+        )
+        image_anchor: tuple[float, float] | None = None
+        if not old_target.isEmpty() and old_target.contains(anchor):
+            image_anchor = (
+                (anchor.x() - old_target.left()) / old_target.width(),
+                (anchor.y() - old_target.top()) / old_target.height(),
+            )
+
+        self._view_zoom = new_zoom
         if self._view_zoom <= 1.001:
             self._view_pan = QPointF(0.0, 0.0)
+        elif image_anchor is not None:
+            fitted = _fit_rect(self.width(), self.height(), *self._image_size)
+            width = fitted.width() * self._view_zoom
+            height = fitted.height() * self._view_zoom
+            u, v = image_anchor
+            new_center = QPointF(
+                anchor.x() - u * width + width / 2.0,
+                anchor.y() - v * height + height / 2.0,
+            )
+            self._view_pan = new_center - fitted.center()
         self.update()
+        payload: dict[str, object] = {
+            "action": "view_zoom",
+            "mode": self._mode,
+            "source": source,
+            "old_zoom": round(old_zoom, 6),
+            "zoom": round(self._view_zoom, 6),
+            "anchor_x": round(anchor.x(), 3),
+            "anchor_y": round(anchor.y(), 3),
+            "pan_x": round(self._view_pan.x(), 3),
+            "pan_y": round(self._view_pan.y(), 3),
+        }
+        if image_anchor is not None:
+            payload["image_anchor_u"] = round(image_anchor[0], 6)
+            payload["image_anchor_v"] = round(image_anchor[1], 6)
+        self.interaction_event.emit(payload)
 
     def paintEvent(self, _event: object) -> None:
         painter = QPainter(self)
@@ -118,14 +208,7 @@ class VideoCanvas(QWidget):
             painter.setPen(QColor("#8290a5"))
             painter.drawText(self.rect(), Qt.AlignCenter, self._placeholder)
             return
-        fitted = _fit_rect(self.width(), self.height(), *self._image_size)
-        center = fitted.center() + self._view_pan
-        target = QRectF(
-            center.x() - fitted.width() * self._view_zoom / 2.0,
-            center.y() - fitted.height() * self._view_zoom / 2.0,
-            fitted.width() * self._view_zoom,
-            fitted.height() * self._view_zoom,
-        )
+        target = self._target_rect()
         self._display_rect = target
         painter.drawPixmap(target.toRect(), self._pixmap)
         sx = target.width() / self._image_size[0]
@@ -166,17 +249,42 @@ class VideoCanvas(QWidget):
             painter.drawRect(QRectF(self._drag_start, self._drag_end).normalized())
 
     def _to_image(self, position: QPointF) -> tuple[float, float] | None:
-        if not self._display_rect.contains(position) or self._image_size[0] == 0:
+        display_rect = self._target_rect()
+        self._display_rect = display_rect
+        if not display_rect.contains(position) or self._image_size[0] == 0:
             return None
-        x = (position.x() - self._display_rect.left()) * self._image_size[0] / self._display_rect.width()
-        y = (position.y() - self._display_rect.top()) * self._image_size[1] / self._display_rect.height()
+        x = (position.x() - display_rect.left()) * self._image_size[0] / display_rect.width()
+        y = (position.y() - display_rect.top()) * self._image_size[1] / display_rect.height()
         return x, y
+
+    def _restore_cursor(self) -> None:
+        self.setCursor(Qt.CrossCursor if self._mode != "none" else Qt.ArrowCursor)
+
+    def _cancel_pointer_interaction(self) -> None:
+        self._pan_drag_start = None
+        self._active_pan_button = None
+        self._left_press_position = None
+        self._drag_start = None
+        self._drag_end = None
+
+    @staticmethod
+    def _button_name(button: Qt.MouseButton | None) -> str:
+        names = {
+            Qt.LeftButton: "left",
+            Qt.RightButton: "right",
+            Qt.MiddleButton: "middle",
+        }
+        return names.get(button, "unknown")
+
+    def _start_pan(self, position: QPointF, button: Qt.MouseButton) -> None:
+        self._pan_drag_start = QPointF(position)
+        self._pan_drag_origin = QPointF(self._view_pan)
+        self._active_pan_button = button
+        self.setCursor(Qt.ClosedHandCursor)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() in (Qt.RightButton, Qt.MiddleButton) and self._pixmap is not None:
-            self._pan_drag_start = event.position()
-            self._pan_drag_origin = QPointF(self._view_pan)
-            self.setCursor(Qt.ClosedHandCursor)
+            self._start_pan(event.position(), event.button())
             event.accept()
             return
         if event.button() != Qt.LeftButton:
@@ -185,13 +293,24 @@ class VideoCanvas(QWidget):
         if image_point is None:
             return
         if self._mode == "point":
-            self.point_clicked.emit(*image_point)
+            self._left_press_position = QPointF(event.position())
+            event.accept()
         elif self._mode == "roi":
             self._drag_start = event.position()
             self._drag_end = event.position()
             self.update()
+            event.accept()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if (
+            self._mode == "point"
+            and self._left_press_position is not None
+            and self._pan_drag_start is None
+        ):
+            delta = event.position() - self._left_press_position
+            threshold = max(4, QApplication.startDragDistance())
+            if delta.manhattanLength() >= threshold:
+                self._start_pan(self._left_press_position, Qt.LeftButton)
         if self._pan_drag_start is not None:
             delta = event.position() - self._pan_drag_start
             self._view_pan = self._pan_drag_origin + delta
@@ -203,9 +322,63 @@ class VideoCanvas(QWidget):
             self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() in (Qt.RightButton, Qt.MiddleButton) and self._pan_drag_start is not None:
+        if self._pan_drag_start is not None and event.button() == self._active_pan_button:
+            delta = self._view_pan - self._pan_drag_origin
+            button = self._active_pan_button
             self._pan_drag_start = None
-            self.setCursor(Qt.CrossCursor if self._mode != "none" else Qt.ArrowCursor)
+            self._active_pan_button = None
+            self._left_press_position = None
+            self._restore_cursor()
+            self.interaction_event.emit(
+                {
+                    "action": "view_pan",
+                    "mode": self._mode,
+                    "button": self._button_name(button),
+                    "delta_x": round(delta.x(), 3),
+                    "delta_y": round(delta.y(), 3),
+                    "pan_x": round(self._view_pan.x(), 3),
+                    "pan_y": round(self._view_pan.y(), 3),
+                    "zoom": round(self._view_zoom, 6),
+                }
+            )
+            event.accept()
+            return
+        if event.button() == Qt.LeftButton and self._mode == "point":
+            pressed = self._left_press_position
+            self._left_press_position = None
+            if pressed is None:
+                return
+            delta = event.position() - pressed
+            threshold = max(4, QApplication.startDragDistance())
+            if delta.manhattanLength() >= threshold:
+                self._view_pan += delta
+                self.update()
+                self.interaction_event.emit(
+                    {
+                        "action": "view_pan",
+                        "mode": self._mode,
+                        "button": "left",
+                        "delta_x": round(delta.x(), 3),
+                        "delta_y": round(delta.y(), 3),
+                        "pan_x": round(self._view_pan.x(), 3),
+                        "pan_y": round(self._view_pan.y(), 3),
+                        "zoom": round(self._view_zoom, 6),
+                    }
+                )
+                event.accept()
+                return
+            image_point = self._to_image(event.position())
+            if image_point is not None:
+                self.interaction_event.emit(
+                    {
+                        "action": "point_placed",
+                        "mode": self._mode,
+                        "image_x": round(image_point[0], 3),
+                        "image_y": round(image_point[1], 3),
+                        "zoom": round(self._view_zoom, 6),
+                    }
+                )
+                self.point_clicked.emit(*image_point)
             event.accept()
             return
         if self._mode != "roi" or self._drag_start is None or self._drag_end is None:
@@ -222,6 +395,17 @@ class VideoCanvas(QWidget):
         roi = (int(x0), int(y0), int(x1 - x0), int(y1 - y0))
         if roi[2] >= 10 and roi[3] >= 10:
             self._roi = roi
+            self.interaction_event.emit(
+                {
+                    "action": "roi_selected",
+                    "mode": self._mode,
+                    "x": roi[0],
+                    "y": roi[1],
+                    "width": roi[2],
+                    "height": roi[3],
+                    "zoom": round(self._view_zoom, 6),
+                }
+            )
             self.roi_changed.emit(roi)
         self.update()
 
@@ -229,7 +413,11 @@ class VideoCanvas(QWidget):
         if self._pixmap is None:
             return
         steps = event.angleDelta().y() / 120.0
-        self._set_view_zoom(self._view_zoom * (1.25**steps))
+        self._set_view_zoom(
+            self._view_zoom * (1.25**steps),
+            event.position(),
+            source="wheel",
+        )
         event.accept()
 
 

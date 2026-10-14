@@ -181,3 +181,36 @@ Implement Phases 1 through 3 first. They directly address the evidence gap,
 misplaced landmarks, oversized ROI, and unsafe scan start seen in these tests.
 Do not ask for another physical scan until the new candidate records the actual
 camera state and refuses or clearly warns on unstable reference geometry.
+
+## Corrective implementation update — 0.3.0 candidate
+
+Phases 1 through 3 reached the software-test gate on 2026-10-13:
+
+- camera properties are sampled automatically at the decisive workflow
+  boundaries and now include hue, gamma, backlight, temperature, iris, FourCC,
+  buffer, raw values, property IDs, and explicit unavailable/ambiguous-zero
+  states;
+- full-frame, object-ROI, and outside-ROI aggregate BGR/gray/HSV, clipping, and
+  contrast evidence is collected without storing image pixels; spatial
+  sharpness is measured for the full frame and rectangular object ROI;
+- the active JSONL is capped at 8 MiB and compacted into first/recent/failure/
+  latest records plus complete event counts; scan-frame detail is sampled and
+  backed by bounded complete per-scan aggregates;
+- rejected frames retain machine reason codes, attempted support ratio,
+  residual, covariance eigenvalues, wall inliers/spans, normal uncertainty,
+  and low-angle/depth/volume rejection-stage counts;
+- wheel zoom is pointer-anchored; point placement waits for mouse release; a
+  left drag pans without placing a point; right/middle pan, Undo, reset, ROI,
+  and final view state are logged;
+- scan start requires five recent stable frames, a matching background, the
+  recommended support margin, and acceptable corner error, or a clearly logged
+  user override; 50 consecutive no-line frames automatically pause capture;
+- low-angle guidance now tells the operator to translate the stripe up/down
+  while retaining both wall segments rather than pivoting toward the hinge.
+
+The safety thresholds remain unchanged: the 5-degree angle cutoff and 0.003
+plane-support guard were not weakened. Draggable existing landmarks, a
+magnified crosshair, keyboard nudging, coverage heat maps, ArUco automation,
+full-field object triangulation, background point editing, and turntable fusion
+remain later work. The 0.3.0 candidate is software tested only until the guided
+physical retest in `TESTING.md` passes.

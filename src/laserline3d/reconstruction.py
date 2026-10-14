@@ -8,6 +8,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .geometry import (
+    PlaneFitEvidence,
+    PlaneFitError,
     corner_wall_planes_world,
     fit_laser_plane_ransac,
     image_points_to_rays,
@@ -34,12 +36,29 @@ from .models import (
 class FrameQuality:
     accepted: bool
     message: str
+    reason_code: str = "unprocessed"
     detected_points: int = 0
+    unclassified_points: int = 0
     object_points: int = 0
     left_reference_points: int = 0
     right_reference_points: int = 0
+    valid_left_reference_points: int = 0
+    valid_right_reference_points: int = 0
     plane_rms_mm: float | None = None
     support_ratio: float | None = None
+    plane_inlier_count: int = 0
+    plane_left_inlier_count: int = 0
+    plane_right_inlier_count: int = 0
+    plane_median_residual_mm: float | None = None
+    plane_covariance_eigenvalues_mm2: tuple[float, float, float] | None = None
+    plane_left_span_mm: float | None = None
+    plane_right_span_mm: float | None = None
+    plane_normal_uncertainty_deg: float | None = None
+    triangulation_candidate_points: int = 0
+    ray_intersection_valid_points: int = 0
+    low_angle_rejected_points: int = 0
+    depth_rejected_points: int = 0
+    volume_rejected_points: int = 0
     median_triangulation_angle_deg: float | None = None
     saturated_fraction: float = 0.0
 
@@ -74,6 +93,25 @@ def _sample_rgb(
     pixels[:, 0] = np.clip(pixels[:, 0], 0, width - 1)
     pixels[:, 1] = np.clip(pixels[:, 1], 0, height - 1)
     return image_bgr[pixels[:, 1], pixels[:, 0], ::-1].copy()
+
+
+def _apply_plane_evidence(
+    quality: FrameQuality, evidence: PlaneFitEvidence
+) -> None:
+    """Copy fit-attempt evidence into the per-frame diagnostic record."""
+
+    quality.plane_rms_mm = evidence.rms_mm
+    quality.support_ratio = evidence.support_ratio
+    quality.plane_inlier_count = evidence.inlier_count
+    quality.plane_left_inlier_count = evidence.left_inlier_count
+    quality.plane_right_inlier_count = evidence.right_inlier_count
+    quality.plane_median_residual_mm = evidence.median_residual_mm
+    quality.plane_covariance_eigenvalues_mm2 = (
+        evidence.covariance_eigenvalues_mm2
+    )
+    quality.plane_left_span_mm = evidence.left_inlier_span_mm
+    quality.plane_right_span_mm = evidence.right_inlier_span_mm
+    quality.plane_normal_uncertainty_deg = evidence.normal_uncertainty_deg
 
 
 class FrameReconstructor:
@@ -118,10 +156,14 @@ class FrameReconstructor:
         quality = FrameQuality(
             accepted=False,
             message="Laser line was not detected",
+            reason_code="laser_not_detected",
             detected_points=len(points),
+            unclassified_points=len(points),
             saturated_fraction=detection.saturated_fraction,
         )
         if len(points) < 10:
+            if len(points):
+                quality.reason_code = "insufficient_laser_points"
             return ProcessedFrame(quality, detection, None, classes)
         object_mask = point_in_roi(points, self.corner.object_roi)
         left_mask = _inside_convex_polygon(points, self.left_polygon) & ~object_mask
@@ -132,15 +174,19 @@ class FrameReconstructor:
         quality.left_reference_points = int(left_mask.sum())
         quality.right_reference_points = int(right_mask.sum())
         quality.object_points = int(object_mask.sum())
+        quality.unclassified_points = int(np.sum(classes < 0))
         minimum = self.scan_settings.min_reference_points_per_wall
         if left_mask.sum() < minimum:
             quality.message = "Move the line left so it reaches the left reference wall"
+            quality.reason_code = "missing_left_reference"
             return ProcessedFrame(quality, detection, None, classes)
         if right_mask.sum() < minimum:
             quality.message = "Move the line right so it reaches the right reference wall"
+            quality.reason_code = "missing_right_reference"
             return ProcessedFrame(quality, detection, None, classes)
         if object_mask.sum() < 3:
             quality.message = "No usable laser segment is inside the object area"
+            quality.reason_code = "missing_object_segment"
             return ProcessedFrame(quality, detection, None, classes)
         left_rays = image_points_to_rays(points[left_mask], self.camera)
         right_rays = image_points_to_rays(points[right_mask], self.camera)
@@ -155,6 +201,8 @@ class FrameReconstructor:
             np.zeros(int(valid_left.sum()), dtype=np.int8),
             np.ones(int(valid_right.sum()), dtype=np.int8),
         ]
+        quality.valid_left_reference_points = int(valid_left.sum())
+        quality.valid_right_reference_points = int(valid_right.sum())
         try:
             plane_fit = fit_laser_plane_ransac(
                 reference,
@@ -162,29 +210,66 @@ class FrameReconstructor:
                 distance_threshold_mm=self.scan_settings.ransac_distance_mm,
                 seed=4382 + int(frame_index),
             )
-        except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
+        except PlaneFitError as error:
+            _apply_plane_evidence(quality, error.evidence)
+            quality.reason_code = error.reason_code
             quality.message = f"Reference line is unstable: {error}"
             return ProcessedFrame(quality, detection, None, classes)
-        quality.plane_rms_mm = plane_fit.rms_mm
-        quality.support_ratio = plane_fit.support_ratio
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as error:
+            quality.reason_code = "invalid_reference_geometry"
+            quality.message = f"Reference line is unstable: {error}"
+            return ProcessedFrame(quality, detection, None, classes)
+        if plane_fit.evidence is not None:
+            _apply_plane_evidence(quality, plane_fit.evidence)
+        else:
+            # Compatibility for custom callers that construct the older
+            # five-field PlaneFit value directly.
+            quality.plane_rms_mm = plane_fit.rms_mm
+            quality.support_ratio = plane_fit.support_ratio
         if plane_fit.rms_mm > self.scan_settings.max_plane_rms_mm:
+            quality.reason_code = "laser_plane_rms_too_high"
             quality.message = "Laser line is too wide or blurred on the reference walls"
             return ProcessedFrame(quality, detection, None, classes)
         object_image = points[object_mask]
         object_rays = image_points_to_rays(object_image, self.camera)
+        quality.triangulation_candidate_points = int(len(object_rays))
         incidence = np.abs(object_rays @ plane_fit.plane[:3])
         angles_deg = np.degrees(np.arcsin(np.clip(incidence, 0.0, 1.0)))
-        object_camera, valid = intersect_rays_with_plane(
+        object_camera, ray_valid = intersect_rays_with_plane(
             object_rays, plane_fit.plane
         )
-        valid &= angles_deg >= 5.0
+        quality.ray_intersection_valid_points = int(ray_valid.sum())
+        if np.any(ray_valid):
+            quality.median_triangulation_angle_deg = float(
+                np.median(angles_deg[ray_valid])
+            )
+        angle_valid = ray_valid & (angles_deg >= 5.0)
+        quality.low_angle_rejected_points = int(np.sum(ray_valid & ~angle_valid))
+        if int(angle_valid.sum()) < 3:
+            if int(ray_valid.sum()) < 3:
+                quality.reason_code = "ray_plane_intersection_failed"
+                quality.message = (
+                    "Laser plane does not intersect enough object camera rays"
+                )
+            else:
+                quality.reason_code = "triangulation_angle_too_low"
+                quality.message = (
+                    "Laser angle is too shallow—translate the line up or down while keeping "
+                    "long segments on both walls; do not pivot it toward the center seam"
+                )
+            return ProcessedFrame(quality, detection, None, classes)
         depths = np.linalg.norm(object_camera, axis=1)
-        valid &= depths >= self.scan_settings.min_depth_mm
-        valid &= depths <= self.scan_settings.max_depth_mm
-        object_camera = object_camera[valid]
-        object_image = object_image[valid]
-        accepted_angles = angles_deg[valid]
+        depth_valid = (
+            angle_valid
+            & (depths >= self.scan_settings.min_depth_mm)
+            & (depths <= self.scan_settings.max_depth_mm)
+        )
+        quality.depth_rejected_points = int(np.sum(angle_valid & ~depth_valid))
+        object_camera = object_camera[depth_valid]
+        object_image = object_image[depth_valid]
+        accepted_angles = angles_deg[depth_valid]
         if len(object_camera) < 3:
+            quality.reason_code = "outside_scan_depth_range"
             quality.message = "Triangulated points fell outside the scan depth range"
             return ProcessedFrame(quality, detection, None, classes)
         object_world = transform_camera_to_world(object_camera, self.corner)
@@ -198,10 +283,12 @@ class FrameReconstructor:
             & (object_world[:, 2] >= -0.25 * self.corner.wing_width_mm)
             & (object_world[:, 2] <= outer_depth + self.corner.wing_width_mm)
         )
+        quality.volume_rejected_points = int(np.sum(~bounds))
         object_world = object_world[bounds]
         object_image = object_image[bounds]
         accepted_angles = accepted_angles[bounds]
         if len(object_world) < 3:
+            quality.reason_code = "outside_reference_volume"
             quality.message = "Reconstructed line is outside the reference volume"
             return ProcessedFrame(quality, detection, None, classes)
         colour_source = background_bgr if background_bgr is not None else frame_bgr
@@ -218,6 +305,7 @@ class FrameReconstructor:
             right_reference_count=int(valid_right.sum()),
         )
         quality.accepted = True
+        quality.reason_code = "accepted"
         quality.message = "Good—keep moving the line slowly"
         quality.object_points = len(object_world)
         quality.median_triangulation_angle_deg = float(np.median(accepted_angles))

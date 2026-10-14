@@ -258,6 +258,8 @@ def test_stale_camera_frame_and_scan_worker_generation_are_rejected(
         "_discard_processing_worker",
         lambda: observed.append(window._scan_generation),
     )
+    monkeypatch.setattr(window, "_confirm_scan_readiness", lambda: True)
+    monkeypatch.setattr(window, "_request_camera_snapshot", lambda _context: False)
     monkeypatch.setattr(window, "_error", lambda *_args: None)
 
     window.start_scan()
