@@ -136,3 +136,37 @@ Suggested simple first-stage workflow:
 - Neither automatic corner recognition nor moving-camera 3D alignment is currently verified; the present scanner assumes a stationary camera during scanning.
 - Do not claim that placing tags makes moving-camera geometry automatically correct. Document world-coordinate transforms, reprojection/scale errors, stripe support, visibility, timestamp consistency, and quantitative known-object validation.
 - Keep existing safety/rejection thresholds, manual calibration fallback, privacy rules, diagnostic recovery, and token-use discipline. Implement only after the user expressly selects this future phase.
+
+### H. Random 3 mm Creality tracking dots on the 90-degree reference fixture
+
+**User idea, 2026-10-13; FUTURE ONLY / EXPERIMENTAL.** Put many Creality 3 mm reflective 3D-scanner sticker dots in irregular positions over the two stationary reference walls. Acquire one well-lit reference image, learn their pattern and known-wall coordinates, then use their detections to recognize/reacquire the fixture when moving the camera. No code requested now.
+
+**Why it may work:**
+- Creality sells reflective black-ring/silver-center dots for other 3D scanning systems. The common "3 mm" dot has approximately a 3 mm reflective inner target and 6 mm outer ring (verify purchased size). Random/irregular placement provides a distinctive local constellation, unlike an evenly spaced grid.
+- With a calibrated camera, known world geometry of the two fixed panels, and dot centers mapped to the planes (e.g. after measuring panel coordinates or solving world coordinates from a validated reference pose), 2D image observations can support camera-pose estimation using correspondences + PnP/RANSAC.
+- A single image of randomly placed, individually identical dots **does not by itself supply metric 3D coordinates or reliable globally unique IDs**. Size alone and a snapshot are not a substitute for measuring/world registration. Resolve dot associations carefully, preferably anchoring the pattern with a small number of uniquely coded ArUco/AprilTags, known panel borders/corners, or a surveyed board layout.
+- Dot detection at 1080p depends on working distance, apparent target diameter in pixels, sharp focus, illumination and motion blur. Do a small pilot first, with before/after stills from several angles and actual pixel-level detection statistics.
+- Silver reflective points may saturate in dedicated lighting, disappear under the user's lights-OFF/low-exposure scanning mode, or create false red laser highlights. Keep laser witness zones matte and unobstructed; consider a brief dedicated *lit* pose-tracking capture separate from laser frames, or masks preventing marker detections from contaminating stripe fitting.
+- If camera moves, the original static background-subtraction frame and 2D object ROI cannot remain valid: pose-reproject the known fixture and recapture/match laser-off backgrounds; continue to require reliable left/right wall stripe support for the freehand laser plane.
+- This is a complement/alternative to the ArUco/AprilTag plan in Section G, **not** an implemented feature or a claimed improvement in 3D accuracy.
+
+References for future research: https://store.creality.com/products/3mm-scanner-reflective-markers-for-otter-raptor ; https://cdn.creality.com/ow/official/9f08b8fd-e5da-485b-97ee-5b1a31db6416.pdf
+
+### I. Budget USB camera upgrade and future multiple-camera option
+
+**User request, 2026-10-13; RESEARCH / NO PURCHASE OR CODE AUTHORIZED.** Current webcam is inexpensive ONN/Walmart branded, with limited controls. User wants a reasonably priced camera with better manual exposure/focus/white-balance control and is interested in two or more cameras from different angles.
+
+**Candidates investigated (prices are time-sensitive; verify availability, exact hardware revision and driver support before purchase):**
+- Logitech C920/C920s USB webcam, native 1920x1080 @ 30 fps. Practical reliable general-use first upgrade; 78° diagonal FoV; autofocus that should be locked to manual setting for calibrated scans. Typical new pricing around $60–70 (used/secondhand may be less); vendor software and Windows DirectShow manual controls vary. Manufacturer: https://www.logitech.com/en-us/shop/p/c920s-pro-hd-webcam
+- Arducam B0454/B0454C 5MP OV5648 USB UVC module, 2592x1944 @ 15 fps MJPEG (1080p @ 30 fps), M12 manual-focus lens, rolling shutter. Often $55–70 through resellers. Offers more pixels for small detail, but wide 110° diagonal stock lens may waste pixels/distort edges, and the official UVC-controls list does **not** guarantee exposure control; verify critical exposure lock before buying. Manufacturer: https://www.arducam.com/blog/product/5mp-ov5648-usb-camera-module-with-wide-angle-m12-lens-and-single-microphone-for-windows-linux-android-and-mac-os/ ; https://docs.arducam.com/UVC-Camera/USB2-UVC-Camera-Kit/Specs-and-Selection-Guide/
+- ELP/AR0234 color 2MP global-shutter 1920x1200 UVC machine-vision camera, up to 90 fps for some variants, optional manual/M12 lens, advertised exposure/white-balance adjustment. Found comparable modules around $130–150 (verify true sensor/shutter, specific lens and trustworthy vendor). Preferred as a later motion/precision-oriented experiment; global shutter is useful for laser/camera movement but 2MP alone does not increase pixel density over a 5MP camera. Manufacturer example: https://www.elpcctv.com/elp-2mp-global-shutter-1200p-1080p-90fps-usb-camera-module-with-m12-21mm-lens-p-543.html
+- Logitech Brio 100 exists around $38–40 but is marketed as an automatic-light-correction meeting webcam. Its fixed/simple optics and limited controls make it a less compelling upgrade than C920 when manual tuning is paramount.
+
+**Selection tests:** In the actual Windows Scanner app, log/verify supported FPS/resolution, real exposure and manual/auto switching, gain, white balance, ability to keep focus fixed, raw/decoded image quality, sharpness across both calibrated V walls, close-up object focus, red stripe bloom at dark-scan exposure, and ability to detect 3 mm markers under proposed tracking light. Avoid assuming stated megapixels, auto-enhancement or digital zoom improve measured 3D accuracy. Recalibrate intrinsic/extrinsic parameters for each new camera, focus, lens, resolution or zoom configuration.
+
+**Multi-camera staged approach:**
+1. Initially add a *second fixed webcam* as a separate independently calibrated view, preferably with one reliable scan camera and another marker/color/reference monitoring view. Test each alone first.
+2. For actual fusion, each camera needs its own intrinsics/distortion and pose relative to the shared calibrated V; pair corresponding time-stamped observations, handle USB bandwidth/latency and unsynchronized shutters, and track which camera generated each ray. Compute laser plane reliably, maintain visibility of known reference stripes, and transform each valid object profile into the same world frame. A second camera alone does not automatically make multi-view triangulation, tracking, hidden-surface texture, or scan registration correct.
+3. Only later consider multiple simultaneously scanning cameras / moving camera tracking (Section G), optionally using global-shutter cameras and hardware synchronization where real measurements show a need. Preserve the original single-camera path and all rejection/readiness guards.
+
+Keep this as a scoped research/roadmap item. Do not ask Codex to build multi-camera support until the user approves.
