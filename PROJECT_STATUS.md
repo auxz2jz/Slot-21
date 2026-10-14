@@ -104,7 +104,12 @@ Build date: 2026-10-13 (America/Los_Angeles; UTC artifacts may show 2026-10-14).
 - release ZIP SHA-256:
   `E98B0E487251E583A62020ACDC68138F0083D0F90EAFE37B73775A8086D9CE86`
 - the executable embedded in the ZIP has the same SHA-256 as the published EXE
-- final 0.3.0 source checkpoint: pending the Git commit at this recovery point
+- exact maintainable-source checkpoint:
+  `43ff46e438e73441db0519e7e30b2bc437c36d5d`
+- local source recovery ZIP:
+  `output/windows/LaserLine3D_Source_Candidate_0.3.0_2026-10-13.zip`
+  (153,493 bytes), SHA-256
+  `78A578C9638F4B6C3EEFD94DC21FF8C3477BF64B3548368750A90FAFB337737D`
 
 The build initially could not rename the older `dist/LaserLine3D` directory.
 Inspection showed that directory is also the user's live data location and

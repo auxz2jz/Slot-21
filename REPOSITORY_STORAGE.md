@@ -26,7 +26,10 @@ The current local 0.3.0 artifacts are identified in `PROJECT_STATUS.md`:
   `9AA0FDB681EAE7EF6E4FEF92C72917DE8FF36F1AD421E9512F76440460276F1F`
 - release ZIP SHA-256:
   `E98B0E487251E583A62020ACDC68138F0083D0F90EAFE37B73775A8086D9CE86`
-- source checkpoint commit: pending the final 0.3.0 Git checkpoint
+- exact maintainable-source checkpoint:
+  `43ff46e438e73441db0519e7e30b2bc437c36d5d`
+- local source recovery ZIP SHA-256:
+  `78A578C9638F4B6C3EEFD94DC21FF8C3477BF64B3548368750A90FAFB337737D`
 
 The latest physical evidence is the two-test 0.2.0 field run, which is user
 tested but not verified. Version 0.3.0 must remain marked as a candidate until
