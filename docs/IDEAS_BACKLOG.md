@@ -190,3 +190,23 @@ Keep this as a scoped research/roadmap item. Do not ask Codex to build multi-cam
 7. Test on the actual connected ONN webcam before recommending a new camera. Higher resolution may provide more laser pixels but is not automatically a gain in depth accuracy; FPS and image quality may drop at a higher mode.
 
 **Priority:** Useful low-cost improvement after the current approved task, and a prerequisite for objective comparison of the present ONN webcam versus possible camera upgrades. This backlog note is *not* a Codex instruction to make changes now.
+
+### K. Higher-precision red stripe sampling and point density
+
+**User observation / idea — 2026-10-14. Future research only; do not modify code until approved.**
+
+During scanning, the user zoomed into the live video and saw little **green dots along the red laser stripe**, and asked if the "laser-line resolution" could be improved independently of the webcam. This is distinct from increasing the photo/camera resolution (Section J), raw profile capture rate (Section B), 3D voxel density, or preview drawing density.
+
+**Existing implementation checked in source on 2026-10-14:**
+- On Tune and Scan video overlays, laser samples belonging to the **object ROI** are drawn green, while reference-wall samples are cyan. They are detected stripe positions, not guarantees of final accepted 3D points.
+- \`laser_detection.py\` uses a red-score mask and per-column ridge selection for a horizontally oriented stripe; then calculates a brightness-weighted **subpixel center** within the configurable stripe half-width (currently default 2 px), followed by a continuity filter. Hence a visible string of green dots corresponds to selected stripe locations, typically up to one location per occupied image column, not individual laser "projected pixels."
+- \`reconstruction.py\` triangulates only valid object-region samples after plane fit, angle/depth, and geometry gates. \`ScanAccumulator.cloud()\` voxel-downsamples the accepted profiles, with default 0.75 mm voxel size. Preview output may also decimate significantly.
+
+**Research and tests to prioritize if approved:**
+1. Determine whether optical stripe width is a limiting factor, using actual screenshots of line full-width, saturation, center stability, and missed columns at the user's working distance. Evaluate an **adjustable-focus low-power line laser**, proper positioning, matte fixture, manual exposure/gain and existing dark-room technique; seek a narrow *but still continuous and bright enough* stripe. Do not recommend increased power or unsafe direct/reflected exposure.
+2. Measure subpixel localization repeatability at known, fixed geometry, including laser speckle and surface reflectance. Compare current brightness-weighted ridge-center estimator with intensity-profile Gaussian/parabolic fit or other robust subpixel methods, only when improvements are shown on real representative frames and noise does not increase.
+3. Characterize sampling **along** the line (native horizontal image columns / actual object ROI width) versus sampling **across** the sweep (accepted frame rate, drop rate, hand motion) versus voxel merging. Do not confuse drawing more dots/interpolation with acquiring new independent geometric information.
+4. Track raw detected line samples, triangulated valid points, accepted profiles, voxelized/exported points, and displayed preview counts independently. Expose diagnostic gaps between stages and allow safe adjustable sampling/voxel density if tests warrant.
+5. Improve precision without weakening two-wall reference triangulation, low-angle and residual rejection, or reference geometry constraints. New lens/focus/zoom/resolution changes require calibration revalidation.
+
+This is an exploratory detail/accuracy proposal, not an active task or a reason to restart Codex work.
