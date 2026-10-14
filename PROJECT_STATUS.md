@@ -11,6 +11,35 @@ Future feature ideas and user scan observations are recorded in
 [docs/IDEAS_BACKLOG.md](docs/IDEAS_BACKLOG.md). These notes are not authorization
 to implement new work. Finish the current approved task before considering them.
 
+## Recent discussion memory (2026-10-14) — NOT current work
+
+The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–M**.
+It includes the separate laser-off detection versus well-lit color/texture photo,
+complete per-test-run ZIP exports, higher-resolution camera/point cloud, laser
+subpixel detail and camera-assisted manual laser focusing, reflective Creality
+3 mm dots, printed ArUco/AprilTag markers, marker-based moving-camera alignment,
+and eventual wide-reference + close-detail two-camera reconstruction.
+
+**User's current preference:** investigate automatic **ArUco/AprilTag marker
+recognition** on both measured V walls first (potentially complemented by
+random 3 mm Creality dots) so camera repositioning might no longer require
+manual visibility of all six corner landmark points. A closer camera could
+provide more object pixels, but **cannot reliably reconstruct a freely swept
+laser line unless the system still determines its laser plane per frame**.
+Current code needs laser stripe support on **both reference walls**; tracking
+markers alone do not replace those stripes. Therefore retain the **two-camera
+alternative**: a wider view to measure the wall stripes/laser plane and a
+separately calibrated close-up view for object detail, with synchronized
+observations, common coordinates and known-object validation. Marker recognition
+requires sufficient visible, sharply imaged markers in measured fixture
+positions; it cannot promise all angles or distances. Current scanner is
+single fixed-camera, manual six-point calibration.
+
+These are durable **future research ideas only**, not an approved implementation.
+Do not expand or interrupt the current approved Codex task or weaken existing
+geometry/recovery/diagnostic checks. Consult the scoped relevant sections
+of the ideas backlog only when planning user-approved features.
+
 ## Recovery checkpoint — 2026-10-13
 
 - **Latest candidate:** 0.3.0, **USER TESTED / NOT VERIFIED**. Two physical
