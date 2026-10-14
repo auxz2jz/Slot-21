@@ -2,7 +2,7 @@
 
 - Project: Slot-21 LaserLine3D Scanner; active objective is the Windows 0.4.0 test-run release.
 - Stage: 0.4.0 implementation, release hardening, full regression, Windows packaging, archive validation, and the maintainable-source commit are complete; final documentation publication remains.
-- Branch/commit: `main`; 0.4.0 implementation checkpoint `d28477bdedeef80cb34f670c90f470524482668f`.
+- Branch/commit: `main`; 0.4.0 implementation checkpoint `2e3cc262e69633894c55c61966302f940185dc2a`.
 - Completed: Standard/Fine density modes, 10k/50k preview limits, repeated-Finish cleanup preservation, run-scoped diagnostics, complete-run ZIP backend/UI, manual export tracking, and version bump to 0.4.0. Release hardening now preserves the raw fused cloud before cleanup, avoids in-memory `.llscan` compression, stages beside the destination, checks free space, validates ZIPs in one streaming pass, supports cancel/progress, records package attempts, reports partial packages honestly, and warns before closing unsaved evidence.
 - Verified after final hardening: final build pipeline 97/97; coverage 81.42% (75% required); source/prebuild/packaged scan self-tests passed with 24 frames, 4,316 points, 8,334 triangles, and 1.4491 mm median synthetic depth error; source and packaged Qt smoke passed on 0.4.0 with all seven pages and printables. Focused final review found no release blocker.
 - Active files: `src/laserline3d/{diagnostics.py,models.py,project_store.py,run_bundle.py,ui/main_window.py,ui/pages.py,ui/widgets.py}`, related tests, `README.md`, `PROJECT_STATUS.md`, and docs.

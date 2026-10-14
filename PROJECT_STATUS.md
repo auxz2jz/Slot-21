@@ -54,7 +54,7 @@ of the ideas backlog only when planning user-approved features.
   Photo texturing and the other ideas in `docs/IDEAS_BACKLOG.md` remain deferred.
 - **Durable repository:** `https://github.com/auxz2jz/Slot-21`, branch `main`.
   The 0.4.0 implementation checkpoint is
-  `d28477bdedeef80cb34f670c90f470524482668f`.
+  `2e3cc262e69633894c55c61966302f940185dc2a`.
 - **Private evidence:** raw camera images, diagnostic archives, calibrations,
   scans, environments, and Windows binaries remain local and outside normal
   Git history. No user scan or diagnostic file was deleted.
@@ -201,7 +201,7 @@ Build date: 2026-10-14 (America/Los_Angeles).
   `52B195DD3EECC77B3C1B0DF030CE29FD5E528EAA671FE110982414C50750B356`
 - the executable embedded in the ZIP has the same SHA-256 as the published EXE
 - maintainable-source implementation checkpoint:
-  `d28477bdedeef80cb34f670c90f470524482668f`
+  `2e3cc262e69633894c55c61966302f940185dc2a`
 
 This is a software-tested candidate, not a hardware-accuracy claim. The final
 diff received an independent focused review with no release-blocking findings.
