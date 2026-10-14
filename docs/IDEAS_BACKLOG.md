@@ -170,3 +170,23 @@ References for future research: https://store.creality.com/products/3mm-scanner-
 3. Only later consider multiple simultaneously scanning cameras / moving camera tracking (Section G), optionally using global-shutter cameras and hardware synchronization where real measurements show a need. Preserve the original single-camera path and all rejection/readiness guards.
 
 Keep this as a scoped research/roadmap item. Do not ask Codex to build multi-camera support until the user approves.
+
+### J. Detect real camera resolutions and Windows backend capabilities
+
+**User request, 2026-10-13 — FUTURE FEATURE ONLY; no implementation authorized.** User reports an ONN/Walmart USB webcam (label stock number read as "10028731", possibly "100028731" but **exact model remains unconfirmed**), with existing scanner choices 640x480, 1280x720, 1920x1080 and requested 30 FPS. A candidate Walmart ONN 1440p product was mentioned, but **do not assume this exact physical webcam really supports 2560x1440** without obtaining a valid hardware/driver mode listing or successful capture. It might be a different model or stock number.
+
+**Current code checked 2026-10-13:**
+- \`src/laserline3d/ui/pages.py\` hardcodes only 640x480, 1280x720, and 1920x1080 in the resolution combo; FPS is a requested 5–60 input, not a list of independently verified supported per-resolution modes.
+- \`src/laserline3d/camera.py\` maps "DirectShow (recommended)" to OpenCV \`CAP_DSHOW\`, "Media Foundation" to \`CAP_MSMF\`, and "Automatic" to \`CAP_ANY\`. It requests width, height, and FPS then reads back reported values. Camera driver dialog access (OpenCV \`CAP_PROP_SETTINGS\`) depends on driver/backend, generally best tried with DirectShow.
+- **No existing 1440p menu choice**; changing the selected resolution will require camera/lens recalibration and revalidation of the corner pose, ROI and laser/background as appropriate.
+
+**Future scoped improvement:**
+1. Add a **Detect supported camera modes / Refresh capabilities** action that reads the actual available width, height, FPS and pixel format/FourCC combinations exposed by each Windows device/backend (use suitable Windows DirectShow/Media Foundation capability enumeration when OpenCV alone cannot reliably list the modes); preserve the hardcoded 1080p choices as an offline fallback.
+2. Show verified choices such as **2560x1440 at 30 FPS only if offered by that camera**, plus any other real formats. Allow a clearly marked *advanced custom/requested mode* for experimentation, but never present an unsupported mode as proven.
+3. Display both **requested** and **actual reported/captured** resolution, format and FPS. Measure effective delivered frame FPS and scanner **processed/accepted** FPS separately so the user can see if the current ~80 ms processing submission interval or dropped frames limit the actual point-cloud density; a "requested 60" field alone does not make the device 60 FPS.
+4. On mismatch, warn and offer a supported fallback. Handle MJPEG vs uncompressed formats and USB bandwidth/performance without forcing unsafe camera properties or making preview freeze.
+5. Preserve selectable **DirectShow / Media Foundation / Automatic**. Use DirectShow as the practical first test when access to native camera settings and manual exposure is needed; Media Foundation as a fallback if DSHOW fails or has inferior format support, then Automatic if necessary. Verify behavior using the particular ONN webcam; automatic selection does not guarantee the desired controls.
+6. Include camera mode and backend in saved calibration identity, run diagnostics, and complete-run ZIP. Warn/invalidate when changes affect camera calibration or the laser-off background; do not reuse an old camera calibration at a new resolution just because aspect ratio matches.
+7. Test on the actual connected ONN webcam before recommending a new camera. Higher resolution may provide more laser pixels but is not automatically a gain in depth accuracy; FPS and image quality may drop at a higher mode.
+
+**Priority:** Useful low-cost improvement after the current approved task, and a prerequisite for objective comparison of the present ONN webcam versus possible camera upgrades. This backlog note is *not* a Codex instruction to make changes now.
