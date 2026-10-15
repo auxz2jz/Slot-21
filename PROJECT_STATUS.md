@@ -13,7 +13,7 @@ to implement new work. Finish the current approved task before considering them.
 
 ## Recent discussion memory (2026-10-14) — NOT current work
 
-The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–O**.
+The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–P**.
 It includes the separate laser-off detection versus well-lit color/texture photo,
 complete per-test-run ZIP exports, higher-resolution camera/point cloud, laser
 subpixel detail and camera-assisted manual laser focusing, reflective Creality
