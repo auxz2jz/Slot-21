@@ -50,24 +50,75 @@ of the ideas backlog only when planning user-approved features.
 
 **Canonical instructions:** [AGENTS.md](AGENTS.md) routes to the [Master Instruction Library](https://github.com/auxz2jz/master-instruction-library), particularly Core Recovery Section 16 and Codex Usage Efficiency Sections 20–26. These rules apply without being copied here. **Canonical current-state handoff:** [docs/CODEX_HANDOFF.md](docs/CODEX_HANDOFF.md). The queue below is the existing project's compact roadmap; do not create a parallel task registry.
 
-**Scope and verified-state protection:** No new scanner behavior is authorized by this documentation change. Latest candidate **v0.4.0 = software-tested, physical test pending**. Earlier v0.2.0 was user-tested, but the repository does not establish a **user-confirmed working/accuracy-verified version**; do not invent one. Preserve exact source checkpoint `2e3cc262e69633894c55c61966302f940185dc2a` and v0.4.0 package/hash data below. Initial remote `main` before this workflow change was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`. GitHub API exposes only committed remote state; it **does not show uncommitted work in the user's Windows checkout**. A local `git status --short --branch` is required before any future code edits.
+**Scope and verified-state protection:** No new scanner behavior is authorized by this documentation change. Latest candidate **v0.4.0 = software-tested and physically exercised, but full guided/accuracy verification remains pending**. Earlier v0.2.0 was user-tested, but the repository does not establish a **user-confirmed working/accuracy-verified version**; do not invent one. Preserve exact source checkpoint `2e3cc262e69633894c55c61966302f940185dc2a` and v0.4.0 package/hash data below. Initial remote `main` before this workflow change was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`. GitHub API exposes only committed remote state; it **does not show uncommitted work in the user's Windows checkout**. A local `git status --short --branch` is required before any future code edits.
 
 Tasks below describe the next **existing authorized testing/recovery path**; items explicitly requiring hardware evidence or new development authorization must not be started automatically. All are bounded; break down any unexpectedly large task before working it. For every task record inputs/files, expected result, measurable completion, verification, backup, and next model setting in `docs/CODEX_HANDOFF.md`.
 
 - **S21-AT-001 — DONE (documentation-only; GitHub readback verified 2026-10-15).** Objective: adopt the global atomic development workflow without duplicating master rules. Inputs: master index/core/usage standards, prior handoff, status, testing, Git remote history. Files: root `AGENTS.md`, this status/queue, `docs/CODEX_HANDOFF.md`, recovery/storage documentation if stale. Output: durable instructions, queue, accurate handoff. **Done when:** those files exist on remote `main`, are cross-linked, preserve v0.4.0 baseline, and repository readback verifies requested fields. **Verify:** fetch committed files and check required sections and unchanged scanner source; no runtime build for documentation-only change. **Setting:** Low/Medium reasoning.
-- **S21-AT-002 — PENDING, needs access to Windows checkout.** Objective: inspect local `git status --short --branch`, reconcile local vs `origin/main`, and inventory protected local release ZIPs, raw scans, private diagnostics/calibrations **without uploading them**. Inputs: existing user's computer and release hashes in this file; depends on S21-AT-001. Files: local working tree, `REPOSITORY_STORAGE.md`, `.gitignore`, `docs/CODEX_HANDOFF.md`. Output: truthful local status and protected-backup decision. **Done when:** any uncommitted changes are identified/preserved and the target test build is confirmed; **verify:** local Git commands/file hash comparison, without reset/clean. **Setting:** Low/Medium.
-- **S21-AT-003 — PENDING, requires user's physical scanner.** Objective: run the existing v0.4.0 controlled hardware guide in `docs/TESTING.md` as smaller checkable segments (camera and calibration readiness, laser/reference readiness, scan/review/package). Depends on S21-AT-002 and actual camera/V/laser. Files: guided test results and private local test diagnostics; source unchanged. Output: genuine human-tested success/fail evidence for v0.4.0. **Done when:** test steps, errors, and any opt-in run evidence are recorded accurately; **verify:** observed device behavior, not a synthetic PASS. **Setting:** Medium for interpreting diagnostics.
+- **S21-AT-002 — DONE (local checkout reconciled 2026-10-15).** Objective: inspect local `git status --short --branch`, reconcile local vs `origin/main`, and inventory protected local release ZIPs, raw scans, private diagnostics/calibrations **without uploading them**. Result: the actual Windows checkout was clean, was safely fast-forwarded through documentation-only commits to remote `main`, and the two supplied complete-run ZIPs plus the published v0.4.0 artifacts remained local/ignored and unmodified. No reset, clean, deletion, source edit, or private upload occurred. **Verify:** local branch/status/head and SHA-256/manifest checks. **Setting:** Low/Medium.
+- **S21-AT-003 — IN PROGRESS; first v0.4.0 physical bundles analyzed 2026-10-15.** Objective: run the existing v0.4.0 controlled hardware guide in `docs/TESTING.md` as smaller checkable segments (camera and calibration readiness, laser/reference readiness, scan/review/package). The two bottle runs prove real camera/calibration/scan/review/export/complete-ZIP operation and are summarized below, but they do not record every guided-test step and do not establish dimensional accuracy. Depends on S21-AT-002 and actual camera/V/laser. Files: guided test results and private local test diagnostics; source unchanged. **Done when:** remaining test steps, errors, and opt-in run evidence are recorded accurately; **verify:** observed device behavior, not a synthetic PASS. **Setting:** Medium for interpreting diagnostics.
 - **S21-AT-004 — BLOCKED pending S21-AT-003 and flat target.** Objective: one reproducible matte-flat-object laser sweep with unchanged optics/lighting and a complete-run ZIP. Input: calibrated working setup. Files: *local only* PLY(s), sidecars, diagnostics and optional approved photos. Output: protected, traceable flat-surface measurement. **Done when:** the run ID, scene conditions and valid bundle are recorded; **verify:** bundle manifest and usable 3D points. **Setting:** Medium.
 - **S21-AT-005 — BLOCKED pending data from S21-AT-004.** Objective: quantify signed point-to-best-fit-plane deviations (RMS, MAD, p95/p99), profile banding vs spikes, raw/cleaned/mesh differences; do not equate pixel density with accuracy. Files: supplied diagnostic ZIP + Sections P/R/S in `docs/IDEAS_BACKLOG.md`. Output: compact evidence-based depth-noise diagnosis. **Done when:** metrics and suspected error source are recorded, with test uncertainty. **Verify:** reproducible calculation/spot checks. **Setting:** High reasoning if geometric interpretation is difficult; otherwise Medium.
 - **S21-AT-006 — DEFERRED, requires measured evidence and explicit development authorization.** Objective: choose one minimal, reversible depth-noise correction with targeted tests and original raw-cloud preservation. Inputs: S21-AT-005 findings and fresh authorization; files only those implicated by evidence. **Done when:** user-approved patch, relevant regression tests, checkpoint and handoff are verified; do **not** assume this task is approved today. **Setting:** High for nontrivial geometry; Medium for bounded filtering.
 
-**Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. Stop after this instruction-integration task because the next development task requires local Windows state and physical evidence. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
+**Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. The next evidence step requires the user's physical scanner and a flat matte target; do not make a speculative source change while waiting. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
+
+## v0.4.0 physical evidence comparison — 2026-10-15
+
+Two private complete-run bundles from the same physical bottle setup were
+analyzed locally and left unmodified. ZIP CRC checks and every manifest size and
+SHA-256 entry passed; both bundles contain the canonical raw/final PLY, final
+OBJ/STL and sidecars, calibration, editable project and opted-in images. No
+private bundle, image, point cloud, calibration, path or run identifier was
+uploaded to GitHub.
+
+- Both runs used the same byte-identical camera/corner calibrations, 1920 × 1080
+  DirectShow stream, reported exposure `-7`, white balance `2800`, object ROI,
+  Fine `0.50 mm` voxel preset and `80 ms` capture interval. The corner-pose
+  reprojection residual was `4.67 px`, above the recommended `2.00 px` and still
+  an accuracy concern.
+- Run 1 mixed three different background/tune/scan phases into one cloud. Its
+  last laser-off background was exactly black, its bounded log had 2,418 dropped
+  old records after an almost twelve-hour run, and 38 sequential cleanup actions
+  reduced 407,424 raw fused points to 225,193. It accepted 1,508/1,837 frames
+  (`82.09%`). Because lighting/tuning changed inside the run, its final settings
+  cannot explain the whole fused model.
+- Run 2 used one valid dim laser-off background, one tune and one scan; no log
+  records were dropped. It accepted 2,183/2,491 frames (`87.64%`), reduced
+  no-laser rejects from `5.01%` to `1.93%` and shallow-angle rejects from `6.10%`
+  to `3.69%`, and retained 359,407 of 486,944 raw fused points after 15 cleanup
+  actions. This is the cleaner, more interpretable workflow baseline.
+- Final local nearest-neighbour medians were nearly identical (`0.366 mm` Run 1,
+  `0.368 mm` Run 2). Run 2's higher count is therefore mainly more coverage and
+  less repeated cleanup, not proof of finer camera detail or greater dimensional
+  accuracy. On the overlapping final surfaces, Run 1→Run 2 nearest distance had
+  `0.333 mm` median and `94.3%` within `1 mm`; the asymmetric Run 2→Run 1 result
+  reflects Run 2's extra retained coverage. This is repeatability evidence only.
+- The Run 1 final PLY contains `11.84%` exactly black vertices because part of
+  the fused acquisition followed the all-black background; Run 2 contains only
+  `0.036%`. Reported camera controls were unchanged, so the color difference is
+  attributable to captured scene/background and lighting history, not white
+  balance or geometry corruption. Both exports otherwise contain real RGB; OBJ
+  vertex colors are optional viewer extensions and STL intentionally has no
+  color.
+- Both scans show the curved spray bottle plus background admitted by the tall
+  rectangular ROI, horizontal sweep banding, and an intentionally open
+  single-view surface. Neither is a controlled flat-target measurement, so
+  object-plane RMS/MAD/p95/p99 depth noise and absolute accuracy cannot be
+  inferred. The recorded ~`0.39 mm` per-frame RMS is laser-plane fit residual,
+  not scanned-object surface error.
+
+Evidence-based next step: one short run of a rigid matte flat target, with fixed
+camera/object/lighting, a tighter object-only ROI, one valid non-black laser-off
+capture, one auto-tune, one uninterrupted slow sweep, and no repeated cleanup
+before packaging the raw cloud. Only that evidence can unblock S21-AT-004/005.
 
 ## Recovery checkpoint — 2026-10-14
 
-- **Latest candidate:** 0.4.0, **SOFTWARE TESTED / PHYSICAL TEST REQUIRED**.
-  Source and packaged checks pass, but density, color, scan quality, and the new
-  complete-run workflow still require the controlled scanner test below.
+- **Latest candidate:** 0.4.0, **SOFTWARE TESTED / PHYSICALLY EXERCISED / FULL
+  GUIDED AND ACCURACY VERIFICATION STILL REQUIRED**. Two physical bottle runs
+  validate the complete-run workflow and provide comparative scan evidence, but
+  not the required flat-target dimensional/depth-noise measurement.
 - **Last user field evidence:** one 0.2.0 comparison and four 0.3.0 scan exports
   were reviewed. Geometry remained present; an object-in-place illuminated
   laser-off background restored measured color. Details are in
