@@ -1,15 +1,33 @@
-# Codex handoff
+# Codex handoff — Slot-21 LaserLine3D
 
-- Project: Slot-21 LaserLine3D Scanner; active objective is the Windows 0.4.0 test-run release.
-- Stage: 0.4.0 implementation, release hardening, full regression, Windows packaging, archive validation, Git integration, and publication to Slot-21 `main` are complete.
-- Branch/commit: `main`; 0.4.0 implementation checkpoint `2e3cc262e69633894c55c61966302f940185dc2a`.
-- Completed: Standard/Fine density modes, 10k/50k preview limits, repeated-Finish cleanup preservation, run-scoped diagnostics, complete-run ZIP backend/UI, manual export tracking, and version bump to 0.4.0. Release hardening now preserves the raw fused cloud before cleanup, avoids in-memory `.llscan` compression, stages beside the destination, checks free space, validates ZIPs in one streaming pass, supports cancel/progress, records package attempts, reports partial packages honestly, and warns before closing unsaved evidence.
-- Verified after final hardening: final build pipeline 97/97; coverage 81.42% (75% required); source/prebuild/packaged scan self-tests passed with 24 frames, 4,316 points, 8,334 triangles, and 1.4491 mm median synthetic depth error; source and packaged Qt smoke passed on 0.4.0 with all seven pages and printables. Focused final review found no release blocker.
-- Active files: `src/laserline3d/{diagnostics.py,models.py,project_store.py,run_bundle.py,ui/main_window.py,ui/pages.py,ui/widgets.py}`, related tests, `README.md`, `PROJECT_STATUS.md`, and docs.
-- Decisions: preserve calibration/background between test runs; freeze density after scan evidence; keep measured RGB; ZIP includes explicit run artifacts only; private images require opt-in; preserve reviewed cleanup when Finish is repeated; a partial ZIP remains retryable and never claims missing formats were included.
-- Release artifacts: `dist/LaserLine3D_0.4.0` (346 files; 311,338,437 bytes) and `output/windows/LaserLine3D_Windows_0.4.0_2026-10-14.zip` (361 entries; 123,391,819 bytes). EXE SHA-256 `C0144B206778C46974A1947EB4BAADD1AFBBE990966CE93519185F017A4041D7`; ZIP SHA-256 `52B195DD3EECC77B3C1B0DF030CE29FD5E528EAA671FE110982414C50750B356`; archive CRC/decompression and embedded EXE hash passed.
-- Remaining risk: long model-format generation is still synchronous, though ZIP compression/validation now reports progress and can be cancelled. Physical scanner validation is still required.
-- Uncommitted changes: none at the published checkpoint; local `main` was synchronized with `origin/main`.
-- Exact next step: extract/use the 0.4.0 package and perform the controlled physical scanner procedure in `docs/TESTING.md`; save one complete-run ZIP last for each independent test.
-- Resume commands: `git status --short --branch`; targeted searches in `src/laserline3d/ui/main_window.py` and `src/laserline3d/run_bundle.py`; tests use workspace-local `TMP`, `TEMP`, and pytest cache under `tmp/`.
-- User decisions required: none currently. Physical scanner validation remains required after the software build.
+**Read order:** [../AGENTS.md](../AGENTS.md) → applicable global Master Instruction Library → this file → [../PROJECT_STATUS.md](../PROJECT_STATUS.md) task queue → relevant [TESTING.md](TESTING.md)/[DIAGNOSTIC_COVERAGE.md](DIAGNOSTIC_COVERAGE.md). Reuse this file; do not create `NEXT_TASK_HANDOFF.md`. Current-state fields supersede previous handoff wording; historical candidate evidence is retained in project status and Git history.
+
+**COMPLETED TASK:** `S21-AT-001` — repository documentation integration of universal atomic-task planning, usage protection, checkpoints and recovery. **Documentation only**: new `AGENTS.md` delegates to already established Master Instruction Library; `PROJECT_STATUS.md` contains bounded task queue; `REPOSITORY_STORAGE.md` identifies local/private backups. No scanner source was changed.
+
+**CURRENT STATUS:** Latest release candidate **LaserLine3D v0.4.0 — SOFTWARE-TESTED, physical scanner verification pending**. Depth-noise diagnosis is the highest-priority technical issue *after collecting controlled real-world evidence*. New projector/stereo/LiDAR concepts remain deferred/unapproved research ideas.
+
+**VERIFICATION RESULTS:** Previous v0.4.0 release checkpoint reported **97/97 automated tests passed**, **81.42% coverage**, source/packaged self-tests, packaged Qt smoke and validated release ZIP. Those tests were **not rerun** for this documentation-only integration. Remote file readback and task-queue/required-field checks are the verification for `S21-AT-001`; do not claim local Windows or hardware testing.
+
+**LAST VERIFIED BASELINE:** No **user-confirmed accuracy-verified hardware version** is established by available project records. v0.2.0 had user testing but was explicitly *not verified*; v0.3.0 has physical comparison scans but no declared accuracy-verified baseline. Do not conflate these with v0.4.0 software verification.
+
+**LATEST CHECKPOINT:** `main` contains the documentation-only `S21-AT-001` commits (current authoritative commit = remote `main` HEAD; verify via `git rev-parse origin/main` or GitHub commit history). **Unmodified v0.4.0 application-source baseline:** `2e3cc262e69633894c55c61966302f940185dc2a`. Exact EXE/release ZIP hashes are in [../PROJECT_STATUS.md](../PROJECT_STATUS.md). Remote `main` before instruction integration was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`.
+
+**GIT COMMIT / BACKUP STATUS:** Documentation saved to connected GitHub repository `auxz2jz/Slot-21`, branch `main`. Root agent-entry commit `c0eeabbbd6dd5d168faa40a7935a93e5b95f44f0`; roadmap queue commit `6561cd6364481723ba2179d64f3fe7b8515a616e`; storage manifest commit `e8fb19872dd087201046181e391b8639a62122f3`. **Local PC Git status is UNKNOWN**: remote API cannot inspect the user's Windows uncommitted work. Local release ZIPs, EXE folders, user calibrations, diagnostic images, run ZIPs and PLY/OBJ/STL need separately protected backup; GitHub doesn't back up ignored/private files. Do not delete, reset, overwrite or upload them.
+
+**UNFINISHED WORK:** `S21-AT-002` local Windows checkout status/backups; `S21-AT-003` guided v0.4.0 physical hardware test; `S21-AT-004` flat-object measured run with complete-run ZIP; `S21-AT-005` depth-noise analysis on actual data. `S21-AT-006` any subsequent code correction is deferred pending evidence and explicit approval. Individual tasks, dependencies, files, measurable checks and model settings are in [../PROJECT_STATUS.md](../PROJECT_STATUS.md).
+
+**KNOWN ERRORS OR BLOCKERS:** Physical v0.4.0 scan quality is not yet validated. Older field runs had visible surface depth noise and ~3–4 px V-corner pose reprojection residuals; no quantitative flat-target noise profile has been supplied for v0.4.0. Source release ZIPs and Windows working-tree status cannot be verified through GitHub alone. See [IDEAS_BACKLOG.md](IDEAS_BACKLOG.md) Sections P/R/S for *deferred* diagnostic hypotheses; do not silently change scanner algorithms or geometry gates.
+
+**NEXT EXACT TASK:** `S21-AT-002` — on the user's Windows checkout, run `git status --short --branch`, inspect current branch/head and any uncommitted or ignored/private artifacts, compare local state against committed `origin/main`, and **preserve** all unknown changes before doing anything else. Only then begin the existing hardware validation tasks, with a matte flat sample used for depth-noise assessment. Do not assume the project can execute on this remote-only tool connection.
+
+**NEXT TASK COMPLETION CRITERIA:** local branch/worktree status recorded accurately; any unfinished local changes identified and preserved; v0.4.0 candidate package and protected backups located or explicitly reported missing; no resetting/cleaning, hardware-code edits, or repeat full builds.
+
+**RECOMMENDED MODEL / REASONING:** Low or Medium for `S21-AT-002` (routine status/artifact reconciliation); increase to High only for contradictory source evidence, substantial geometry diagnostics or a difficult failure. No automatic model switch is available in this repository.
+
+**USAGE INFORMATION:** Unknown — no reliable current Codex account-usage percentage accessible to this chat. Do not invent usage readings; conservative master-library unknown-usage stop rule applies.
+
+**CONTINUE OR STOP:** **STOP after completing `S21-AT-001`**. Remaining work needs access to the local Windows checkout and real scanner test evidence; do not start costly development or create a speculative software patch. Resume at `S21-AT-002` with the actual local Git state.
+
+## Recovery command and checkpoint discipline
+
+Use `git status --short --branch` and `git log -1 --oneline` **on the actual Windows computer**, inspect uncommitted changes and only relevant changed source before proceeding. Never infer a clean local checkout from a GitHub view. Complete one bounded task, run its targeted verification, commit/push safe authorized changes, refresh *this* handoff and task queue, and record next model/reasoning. For any risky or expensive step, preserve a checkpoint first. Full tests and hardware scans follow [TESTING.md](TESTING.md), not repeated guesses. Save a complete-run ZIP for each controlled physical run, with camera images opt-in and private. Follow the master standard's stop/usage thresholds without claiming nonexistent monitoring or automatic resumption.
