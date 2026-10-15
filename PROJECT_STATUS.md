@@ -13,7 +13,7 @@ to implement new work. Finish the current approved task before considering them.
 
 ## Recent discussion memory (2026-10-14) — NOT current work
 
-The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–R**.
+The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–S**.
 It includes the separate laser-off detection versus well-lit color/texture photo,
 complete per-test-run ZIP exports, higher-resolution camera/point cloud, laser
 subpixel detail and camera-assisted manual laser focusing, reflective Creality
@@ -36,6 +36,8 @@ positions; it cannot promise all angles or distances. Current scanner is
 single fixed-camera, manual six-point calibration.
 
 **Priority confirmed (2026-10-14):** reduce and quantify depth noise on the *existing Slot-21 laser-line scanner* before exploring new LiDAR or stereo hardware. Preserve ideas for repeated rotating-LiDAR sampling, dual capture reference images, and optional real-time surface preview as future experiments. Work from a flat-target scan with raw-vs-cleaned-vs-meshed residual metrics; see Ideas Backlog Sections P and R. This note does not authorize code changes or interrupt current Codex work.
+
+**Second camera vs. laser grid (2026-10-14):** explored adding a second stationary stereo camera to the existing V-corner/hand-swept stripe scanner for geometry cross-checks and depth-noise rejection, while keeping the manual one-laser sweep; a static or moving grid needs stripe identification and separate laser-plane calibration and does not inherently reduce noise. Details in Ideas Backlog Section S. No code changes approved.
 
 **Handheld stereo prototype preference (2026-10-14):** user prefers a rigid, twin ~8 MP USB-camera and fixed focusable laser scanning head **tethered to their existing Windows laptop**, avoiding Raspberry Pi/Jetson/battery expense initially. Miniature ToF ranging is optional distance guidance; the first prototype needs individual/stereo/laser calibration and a way to register handheld motion (ArUco/AprilTag pose or validated feature tracking). Retain the original Slot-21 fixed-camera V-reference baseline. Details in Ideas Backlog Section O.
 
