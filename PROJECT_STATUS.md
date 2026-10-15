@@ -13,7 +13,7 @@ to implement new work. Finish the current approved task before considering them.
 
 ## Recent discussion memory (2026-10-14) — NOT current work
 
-The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–N**.
+The detailed discussion record is in **docs/IDEAS_BACKLOG.md, Sections A–O**.
 It includes the separate laser-off detection versus well-lit color/texture photo,
 complete per-test-run ZIP exports, higher-resolution camera/point cloud, laser
 subpixel detail and camera-assisted manual laser focusing, reflective Creality
@@ -34,6 +34,8 @@ observations, common coordinates and known-object validation. Marker recognition
 requires sufficient visible, sharply imaged markers in measured fixture
 positions; it cannot promise all angles or distances. Current scanner is
 single fixed-camera, manual six-point calibration.
+
+**Handheld stereo prototype preference (2026-10-14):** user prefers a rigid, twin ~8 MP USB-camera and fixed focusable laser scanning head **tethered to their existing Windows laptop**, avoiding Raspberry Pi/Jetson/battery expense initially. Miniature ToF ranging is optional distance guidance; the first prototype needs individual/stereo/laser calibration and a way to register handheld motion (ArUco/AprilTag pose or validated feature tracking). Retain the original Slot-21 fixed-camera V-reference baseline. Details in Ideas Backlog Section O.
 
 These are durable **future research ideas only**, not an approved implementation.
 Do not expand or interrupt the current approved Codex task or weaken existing
