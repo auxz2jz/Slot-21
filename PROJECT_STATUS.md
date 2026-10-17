@@ -57,8 +57,8 @@ Tasks below describe the next **existing authorized testing/recovery path**; ite
 - **S21-AT-001 — DONE (documentation-only; GitHub readback verified 2026-10-15).** Objective: adopt the global atomic development workflow without duplicating master rules. Inputs: master index/core/usage standards, prior handoff, status, testing, Git remote history. Files: root `AGENTS.md`, this status/queue, `docs/CODEX_HANDOFF.md`, recovery/storage documentation if stale. Output: durable instructions, queue, accurate handoff. **Done when:** those files exist on remote `main`, are cross-linked, preserve v0.4.0 baseline, and repository readback verifies requested fields. **Verify:** fetch committed files and check required sections and unchanged scanner source; no runtime build for documentation-only change. **Setting:** Low/Medium reasoning.
 - **S21-AT-002 — DONE (local checkout reconciled 2026-10-15).** Objective: inspect local `git status --short --branch`, reconcile local vs `origin/main`, and inventory protected local release ZIPs, raw scans, private diagnostics/calibrations **without uploading them**. Result: the actual Windows checkout was clean, was safely fast-forwarded through documentation-only commits to remote `main`, and the two supplied complete-run ZIPs plus the published v0.4.0 artifacts remained local/ignored and unmodified. No reset, clean, deletion, source edit, or private upload occurred. **Verify:** local branch/status/head and SHA-256/manifest checks. **Setting:** Low/Medium.
 - **S21-AT-003 — IN PROGRESS; first v0.4.0 physical bundles analyzed 2026-10-15.** Objective: run the existing v0.4.0 controlled hardware guide in `docs/TESTING.md` as smaller checkable segments (camera and calibration readiness, laser/reference readiness, scan/review/package). The two bottle runs prove real camera/calibration/scan/review/export/complete-ZIP operation and are summarized below, but they do not record every guided-test step and do not establish dimensional accuracy. Depends on S21-AT-002 and actual camera/V/laser. Files: guided test results and private local test diagnostics; source unchanged. **Done when:** remaining test steps, errors, and opt-in run evidence are recorded accurately; **verify:** observed device behavior, not a synthetic PASS. **Setting:** Medium for interpreting diagnostics.
-- **S21-AT-004 — PARTIAL / REPEAT REQUIRED after 2026-10-16 flat-target attempt.** Objective: one reproducible matte-flat-object laser sweep with unchanged optics/lighting and a complete-run ZIP. Two private Standard/Fine flat-board bundles now validate and contain usable points, but both scans started through a readiness override with `10.86 px` corner-pose error, and the oversized target reduced reference-wall support. They are preserved as failed-but-useful evidence, not an accuracy baseline. **Done when:** a smaller target run starts only after five stable Good previews, without override, with practical corner error near the recommended `≤2 px`; **verify:** bundle manifest, scene image and usable raw target points. **Setting:** Medium.
-- **S21-AT-005 — PARTIAL / PROVISIONAL; final diagnosis blocked by repeated S21-AT-004.** Objective: quantify signed point-to-best-fit-plane deviations (RMS, MAD, p95/p99), profile banding vs spikes, raw/cleaned/mesh differences; do not equate pixel density with accuracy. The first provisional measurements are below, but calibration/plane-support confounds prevent attributing them to scanner depth noise. **Done when:** the same reproducible calculation is applied to an accepted, no-override smaller-target run and suspected error sources are recorded with uncertainty. **Setting:** High reasoning if geometric interpretation is difficult; otherwise Medium.
+- **S21-AT-004 — PARTIAL / REPEAT REQUIRED after 2026-10-17 smaller-target attempt.** Objective: one reproducible matte-flat-object laser sweep with unchanged optics/lighting and a complete-run ZIP. The smaller target materially improved two-wall support and produced a much flatter isolated target cloud, but the corner solve remained `9.45 px` and both scan attempts again started through readiness overrides. The package omitted scene images, so target size/material/placement cannot be visually confirmed. Preserve it as promising but provisional evidence, not an accuracy baseline. **Done when:** a smaller-target run starts only after five stable Good previews, without override, with practical corner error near the recommended `≤2 px`; **verify:** bundle manifest, opted-in scene image and usable raw target points. **Setting:** Medium.
+- **S21-AT-005 — PARTIAL / PROVISIONAL; final diagnosis blocked by repeated S21-AT-004.** Objective: quantify signed point-to-best-fit-plane deviations (RMS, MAD, p95/p99), profile banding vs spikes, raw/cleaned/mesh differences; do not equate pixel density with accuracy. The isolated 2026-10-17 target is substantially flatter than the confounded large-board attempt, but the `9.45 px` pose error prevents attributing the remaining approximately `1 mm` RMS to scanner depth noise. **Done when:** the same reproducible calculation is applied to an accepted, no-override smaller-target run and suspected error sources are recorded with uncertainty. **Setting:** High reasoning if geometric interpretation is difficult; otherwise Medium.
 - **S21-AT-006 — DEFERRED, requires measured evidence and explicit development authorization.** Objective: choose one minimal, reversible depth-noise correction with targeted tests and original raw-cloud preservation. Inputs: S21-AT-005 findings and fresh authorization; files only those implicated by evidence. **Done when:** user-approved patch, relevant regression tests, checkpoint and handoff are verified; do **not** assume this task is approved today. **Setting:** High for nontrivial geometry; Medium for bounded filtering.
 
 **Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. The next evidence step requires the user's physical scanner and a flat matte target; do not make a speculative source change while waiting. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
@@ -164,6 +164,57 @@ landmarks with margin; verify the physical V dimensions/90° angle; and do not
 scan until error is much lower, both wall spans are preferably `80–100+ mm`,
 support ratio is at least `0.006`, and five previews are Good. Use Standard first;
 Fine can follow as a separate A/B run only after the Standard run is accepted.
+
+## v0.4.0 smaller-target repeat — 2026-10-17
+
+One new private complete-run bundle and twelve separately supplied export files
+were analyzed locally and left unmodified. The ZIP passed CRC and every manifest
+size/SHA-256 check (`27` included, `0` missing, `2` intentionally omitted); all
+twelve separate PLY/OBJ/STL and sidecar files are byte-identical to the matching
+manual-export entries. The package is complete, has no dropped diagnostic
+records or artifact failures, and intentionally contains no private scene image.
+The Master Instruction Library and Slot-21 remote instructions were unchanged.
+
+This test run contains two attempts. A short Standard (`0.75 mm`) attempt was
+finished and then cleared: 168/257 frames accepted (`65.4%`), 56,117 points,
+median support ratio `0.0281`, and one degenerate-support reject. No cloud from
+that cleared attempt is retained in the bundle. The saved Fine (`0.50 mm`)
+attempt accepted 697/870 frames (`80.1%`), fused 247,663 raw points and retained
+239,714 after one cleanup pass removed 7,949 (`3.2%`). Its median support ratio
+was `0.0276` (p05 `0.0185`), and only 7/870 frames (`0.8%`) failed for degenerate
+support. This is a major reference-support improvement over the 2026-10-16 Fine
+attempt (`0.0059` median support and `11.6%` degenerate rejects), consistent with
+the smaller target leaving more wall visible.
+
+However, both attempts again used **Start anyway** while the latest preview had
+no detected laser, zero consecutive Good frames, and no measured support margin.
+The corner-pose error improved only from `10.86 px` to `9.45 px`, still far above
+the recommended `≤2 px`. The saved attempt also ended with the 50-no-line safety
+pause. These are workflow/calibration failures even though most later frames had
+strong support.
+
+For provisional flatness measurement, disconnected reconstructed wall strips
+were separated from the obvious broad central target using the clear X-axis
+gaps, then the central 80% of that target was fit to a plane. The raw central
+target contained 63,116 points: RMS `1.059 mm`, MAD `0.664 mm`, absolute p95
+`2.009 mm`, p99 `2.976 mm`, and `71.9%/94.9%` within `1/2 mm`. After one cleanup,
+62,650 central points remained: RMS `0.982 mm`, MAD `0.662 mm`, p95 `1.956 mm`,
+p99 `2.786 mm`, and `72.2%/95.3%` within `1/2 mm`. Median-profile variation was
+about `0.244 mm` RMS vertically (`1.14 mm` peak-to-peak) and `0.065 mm` RMS
+horizontally (`0.27 mm` peak-to-peak) before cleanup. Median nearest-neighbour
+spacing was `0.518 mm`, matching Fine density; cloud median luminance was `51.89`
+and fewer than `0.05%` of points were exact black.
+
+The smaller target therefore solved the principal wall-support problem and the
+isolated plane is encouragingly flatter. It does **not** complete accuracy
+verification: scene geometry was not photographed, the extraction differs from
+the prior large-board measurement because disconnected wall strips had to be
+removed, and `9.45 px` pose error can still create systematic depth bias. The
+next bounded step is corner calibration only: empty V, laser off, actual measured
+equal wing width/inside angle/top-to-bottom mark separation, exact six-point
+order, and careful zoom/pan placement until the solve is near `≤2 px`. Do not run
+another full scan until that gate is met; then repeat one Standard scan without
+overriding readiness and opt in to the scene image for setup verification.
 
 ## Recovery checkpoint — 2026-10-14
 
