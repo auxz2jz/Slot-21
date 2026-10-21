@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import cv2
@@ -7,6 +8,7 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -24,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..camera import BACKENDS, CameraRequest
+from ..camera import BACKENDS, CAMERA_CONTROLLABLE_PROPERTIES, CameraRequest
 from ..models import SCAN_DENSITY_PRESETS, LaserSettings, Mesh, PointCloud, ScanSettings
 from ..reconstruction import FrameQuality
 from .widgets import (
@@ -115,6 +117,9 @@ class CameraPage(WizardPage):
     disconnect_requested = Signal()
     native_settings_requested = Signal()
     refresh_properties_requested = Signal()
+    apply_properties_requested = Signal(object)
+    save_profile_requested = Signal(object)
+    load_profile_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__(
@@ -143,8 +148,10 @@ class CameraPage(WizardPage):
         for label, size in CAMERA_RESOLUTIONS:
             self.resolution.addItem(label, size)
         self.resolution.setCurrentIndex(1)
-        self.fps = QSpinBox()
-        self.fps.setRange(1, 120)
+        self.fps = QDoubleSpinBox()
+        self.fps.setRange(1.0, 120.0)
+        self.fps.setDecimals(3)
+        self.fps.setSingleStep(1.0)
         self.fps.setValue(30)
         self.fps.setToolTip(
             "The driver may substitute a supported rate. The actual rate is shown after connection."
@@ -201,6 +208,72 @@ class CameraPage(WizardPage):
         reports.addWidget(self.properties)
         top.addLayout(reports, 3)
         self.layout.addLayout(top)
+        profile_panel = QFrame()
+        profile_panel.setObjectName("panel")
+        profile_layout = QVBoxLayout(profile_panel)
+        profile_title = QLabel("Camera control profile")
+        profile_title.setObjectName("sectionTitle")
+        profile_layout.addWidget(profile_title)
+        profile_help = QLabel(
+            "Enter the camera driver's raw numeric values and check only controls you want to apply. "
+            "Ranges differ by camera, so LaserLine3D does not invent generic sliders. Every apply is read back; "
+            "substituted, refused, and unreported values stay visible."
+        )
+        profile_help.setWordWrap(True)
+        profile_layout.addWidget(profile_help)
+        name_row = QHBoxLayout()
+        name_row.addWidget(QLabel("Profile name"))
+        self.profile_name = QLineEdit("Arducam scan setup")
+        self.profile_name.setMaxLength(120)
+        self._reported_properties: dict[str, object] = {}
+        name_row.addWidget(self.profile_name, 1)
+        profile_layout.addLayout(name_row)
+        properties_grid = QGridLayout()
+        self.property_checks: dict[str, QCheckBox] = {}
+        self.property_values: dict[str, QLineEdit] = {}
+        for index, name in enumerate(CAMERA_CONTROLLABLE_PROPERTIES):
+            control = QWidget()
+            control_layout = QHBoxLayout(control)
+            control_layout.setContentsMargins(0, 0, 0, 0)
+            check = QCheckBox(name)
+            edit = QLineEdit()
+            edit.setPlaceholderText("raw value")
+            edit.setMaximumWidth(92)
+            edit.setToolTip(
+                "Use the exact raw value reported by this camera/driver; support and range are verified by read-back."
+            )
+            control_layout.addWidget(check, 1)
+            control_layout.addWidget(edit)
+            row, column = divmod(index, 3)
+            properties_grid.addWidget(control, row, column)
+            self.property_checks[name] = check
+            self.property_values[name] = edit
+        profile_layout.addLayout(properties_grid)
+        profile_buttons = QHBoxLayout()
+        self.use_reported_button = QPushButton("Select reported values")
+        self.use_reported_button.setEnabled(False)
+        self.use_reported_button.clicked.connect(self.select_reported_values)
+        self.apply_controls_button = QPushButton("Apply selected controls")
+        self.apply_controls_button.setObjectName("primaryButton")
+        self.apply_controls_button.setEnabled(False)
+        self.apply_controls_button.clicked.connect(self._apply_selected_properties)
+        self.save_profile_button = QPushButton("Save profile…")
+        self.save_profile_button.clicked.connect(self._save_profile)
+        self.load_profile_button = QPushButton("Load profile…")
+        self.load_profile_button.clicked.connect(self.load_profile_requested)
+        profile_buttons.addWidget(self.use_reported_button)
+        profile_buttons.addWidget(self.apply_controls_button)
+        profile_buttons.addWidget(self.save_profile_button)
+        profile_buttons.addWidget(self.load_profile_button)
+        profile_buttons.addStretch()
+        profile_layout.addLayout(profile_buttons)
+        self.profile_status = StatusCard(
+            "Profile/apply status",
+            "Load or prepare a profile. Loading never changes the camera until you connect or click Apply.",
+        )
+        profile_layout.addWidget(self.profile_status)
+        profile_panel.setMaximumWidth(1000)
+        self.layout.addWidget(profile_panel)
         model_note = QLabel(
             "Camera model names and control ranges are not reliably exposed through OpenCV. Use the model printed on "
             "the camera or shown in Windows for model-specific help. Most webcams have no optical zoom; driver zoom is "
@@ -213,8 +286,11 @@ class CameraPage(WizardPage):
         self.layout.addWidget(self.canvas, 1)
 
     def _connect(self) -> None:
+        self.connect_requested.emit(self.current_camera_request())
+
+    def current_camera_request(self) -> CameraRequest:
         width, height = self.resolution.currentData()
-        request = CameraRequest(
+        return CameraRequest(
             index=self.camera_index.value(),
             backend=BACKENDS[self.backend.currentText()],
             width=width,
@@ -222,13 +298,128 @@ class CameraPage(WizardPage):
             fps=float(self.fps.value()),
             pixel_format=self.pixel_format.currentData(),
         )
-        self.connect_requested.emit(request)
+
+    def set_camera_request(self, request: CameraRequest) -> None:
+        self.camera_index.setValue(int(request.index))
+        for index in range(self.backend.count()):
+            if BACKENDS.get(self.backend.itemText(index)) == request.backend:
+                self.backend.setCurrentIndex(index)
+                break
+        else:
+            raise ValueError("The profile's camera backend is not available in this build")
+        resolution = (int(request.width), int(request.height))
+        index = self.resolution.findData(resolution)
+        if index < 0:
+            self.resolution.addItem(f"{resolution[0]} × {resolution[1]} (profile)", resolution)
+            index = self.resolution.count() - 1
+        self.resolution.setCurrentIndex(index)
+        self.fps.setValue(float(request.fps))
+        format_index = self.pixel_format.findData(request.pixel_format)
+        if format_index < 0:
+            raise ValueError("The profile's USB video format is not available in this build")
+        self.pixel_format.setCurrentIndex(format_index)
+
+    def selected_property_values(self) -> dict[str, float]:
+        selected: dict[str, float] = {}
+        for name in CAMERA_CONTROLLABLE_PROPERTIES:
+            if not self.property_checks[name].isChecked():
+                continue
+            text = self.property_values[name].text().strip()
+            if not text:
+                raise ValueError(f"{name} is selected but has no value")
+            try:
+                value = float(text)
+            except ValueError as error:
+                raise ValueError(f"{name} must be a number") from error
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
+            selected[name] = value
+        return selected
+
+    def _apply_selected_properties(self) -> None:
+        try:
+            selected = self.selected_property_values()
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid camera control", str(error))
+            return
+        if not selected:
+            QMessageBox.warning(
+                self, "No controls selected", "Check at least one camera control to apply."
+            )
+            return
+        self.profile_status.set_status("Waiting for camera driver read-back…", "warning")
+        self.apply_properties_requested.emit(selected)
+
+    def _save_profile(self) -> None:
+        try:
+            properties = self.selected_property_values()
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid camera control", str(error))
+            return
+        name = self.profile_name.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Profile name required", "Enter a profile name first.")
+            return
+        self.save_profile_requested.emit({"name": name, "properties": properties})
+
+    def set_camera_profile(
+        self, name: str, request: CameraRequest, properties: dict[str, float]
+    ) -> None:
+        self.set_camera_request(request)
+        self.profile_name.setText(name)
+        for property_name in CAMERA_CONTROLLABLE_PROPERTIES:
+            selected = property_name in properties
+            self.property_checks[property_name].setChecked(selected)
+            if selected:
+                self.property_values[property_name].setText(f"{properties[property_name]:g}")
+        self.profile_status.set_status(
+            f"Loaded {len(properties)} selected controls. Connect/reconnect for the saved mode; click Apply selected controls for control values.",
+            "warning",
+        )
+
+    def select_reported_values(self) -> None:
+        selected = 0
+        for name in CAMERA_CONTROLLABLE_PROPERTIES:
+            value = self._reported_properties.get(name)
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(numeric):
+                continue
+            self.property_values[name].setText(f"{numeric:g}")
+            self.property_checks[name].setChecked(True)
+            selected += 1
+        self.profile_status.set_status(
+            f"Selected {selected} reported raw values. Zero may still mean zero/off or unsupported; Apply will verify read-back.",
+            "warning",
+        )
+
+    def set_property_apply_result(self, payload: dict[str, object]) -> None:
+        results = payload.get("results")
+        if not isinstance(results, dict):
+            self.profile_status.set_status("Camera returned an invalid apply result.", "bad")
+            return
+        lines: list[str] = []
+        for name, raw_item in results.items():
+            item = raw_item if isinstance(raw_item, dict) else {}
+            actual = item.get("actual")
+            actual_text = "unreported" if actual is None else f"{float(actual):g}"
+            lines.append(
+                f"{name}: requested {item.get('requested')} → {actual_text} ({item.get('status', 'unknown')})"
+            )
+        outcome = str(payload.get("result", "unknown"))
+        self.profile_status.set_status(
+            "\n".join(lines), "good" if outcome == "applied" else "warning"
+        )
 
     def set_connected(self, details: dict[str, object]) -> None:
         self.connect_button.setEnabled(False)
         self.disconnect_button.setEnabled(True)
         self.settings_button.setEnabled(True)
         self.refresh_properties.setEnabled(True)
+        self.use_reported_button.setEnabled(True)
+        self.apply_controls_button.setEnabled(True)
         pixel_format = details.get("pixel_format") or "format unreported"
         message = (
             f"Connected through {details['backend']} at {details['width']} × {details['height']} "
@@ -247,6 +438,7 @@ class CameraPage(WizardPage):
             self.set_reported_properties(reported)
 
     def set_reported_properties(self, properties: dict[str, object]) -> None:
+        self._reported_properties = dict(properties)
         order = (
             "Autofocus",
             "Focus",
@@ -277,6 +469,8 @@ class CameraPage(WizardPage):
             except (TypeError, ValueError):
                 value = str(properties[name])
             values.append(f"{name}: {value}")
+            if name in self.property_values and not self.property_checks[name].isChecked():
+                self.property_values[name].setText(value)
         self.properties.set_status(
             "  •  ".join(values)
             + "\nRaw values only: availability and ranges depend on the camera, driver, and Windows backend.",
@@ -288,6 +482,8 @@ class CameraPage(WizardPage):
         self.disconnect_button.setEnabled(False)
         self.settings_button.setEnabled(False)
         self.refresh_properties.setEnabled(False)
+        self.use_reported_button.setEnabled(False)
+        self.apply_controls_button.setEnabled(False)
         self.status.set_status(message, "bad" if "error" in message.lower() else "neutral")
         self.properties.set_status(
             "Connect first. A value of 0 can mean either zero/off or unsupported.", "neutral"

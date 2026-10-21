@@ -2,6 +2,7 @@ import math
 
 from laserline3d.camera import (
     CameraRequest,
+    apply_camera_property_batch,
     assess_camera_mode,
     camera_property_ids,
     camera_property_value_status,
@@ -134,3 +135,45 @@ def test_camera_mode_negotiation_does_not_claim_unreported_values() -> None:
     assert result["accepted"] is False
     assert result["mismatches"] == {}
     assert result["unverified"] == ["fps", "pixel_format"]
+
+
+class AdjustableCapture:
+    def __init__(self) -> None:
+        identifiers = camera_property_ids()
+        self.values = {
+            identifiers["Exposure"]: -5.0,
+            identifiers["Gain"]: 1.0,
+            identifiers["Focus"]: 20.0,
+        }
+
+    def get(self, property_id: int) -> float:
+        return self.values.get(property_id, float("nan"))
+
+    def set(self, property_id: int, value: float) -> bool:
+        identifiers = camera_property_ids()
+        if property_id == identifiers["Exposure"]:
+            self.values[property_id] = value
+            return True
+        if property_id == identifiers["Gain"]:
+            self.values[property_id] = round(value)
+            return True
+        return False
+
+
+def test_camera_property_apply_reports_applied_substituted_and_refused() -> None:
+    result = apply_camera_property_batch(
+        AdjustableCapture(),
+        {"Exposure": -7.0, "Gain": 2.4, "Focus": 25.0},
+    )
+
+    assert result["result"] == "partial"
+    assert result["results"]["Exposure"]["status"] == "applied"
+    assert result["results"]["Gain"] == {
+        "requested": 2.4,
+        "before": 1.0,
+        "actual": 2.0,
+        "set_returned": True,
+        "matches": False,
+        "status": "substituted",
+    }
+    assert result["results"]["Focus"]["status"] == "refused"

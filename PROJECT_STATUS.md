@@ -61,11 +61,12 @@ Tasks below describe the next **existing authorized testing/recovery path**; ite
 - **S21-AT-005 — PARTIAL / PROVISIONAL; final diagnosis blocked by repeated S21-AT-004.** Objective: quantify signed point-to-best-fit-plane deviations (RMS, MAD, p95/p99), profile banding vs spikes, raw/cleaned/mesh differences; do not equate pixel density with accuracy. The isolated 2026-10-17 target is substantially flatter than the confounded large-board attempt, but the `9.45 px` pose error prevents attributing the remaining approximately `1 mm` RMS to scanner depth noise. **Done when:** the same reproducible calculation is applied to an accepted, no-override smaller-target run and suspected error sources are recorded with uncertainty. **Setting:** High reasoning if geometric interpretation is difficult; otherwise Medium.
 - **S21-AT-006 — DEFERRED, requires measured evidence and explicit development authorization.** Objective: choose one minimal, reversible depth-noise correction with targeted tests and original raw-cloud preservation. Inputs: S21-AT-005 findings and fresh authorization; files only those implicated by evidence. **Done when:** user-approved patch, relevant regression tests, checkpoint and handoff are verified; do **not** assume this task is approved today. **Setting:** High for nontrivial geometry; Medium for bounded filtering.
 - **S21-CAM-001 — DONE / SOFTWARE-TESTED 2026-10-20; B029201 HARDWARE TEST PENDING.** Objective: support the new Arducam B029201 and other high-resolution UVC cameras without guessing that a requested mode was accepted. Result: v0.5.0 source offers presets through 3840 × 2160 (including B029201 2592 × 1944 and 3264 × 2448), requested 1–120 fps, MJPEG/YUY2/default transport, format-first negotiation, actual resolution/FPS/FourCC read-back, explicit substituted/unverified warnings, and `camera_mode_negotiated` evidence. Verification: 11 targeted camera tests, full 101-test suite, deterministic self-test and v0.5.0 Qt smoke passed. No executable/package was built and no physical high-resolution mode is claimed verified. **Setting:** Medium reasoning.
-- **S21-CAM-002 — AUTHORIZED / PENDING S21-CAM-001.** Objective: add in-program camera-control profiles while preserving **Camera driver settings…** as the compatibility fallback. Expected output: explicit supported-property apply/read-back, named JSON save/load, failure/mismatch reporting, geometry/background invalidation, diagnostics, privacy-safe export evidence, and guided tests. Do not invent generic ranges or claim unsupported controls; the camera/driver remains authoritative. **Done when:** profile round-trip and apply/read-back tests pass and the B029201 physical test confirms which controls it honors. **Setting:** High reasoning for driver-state/invalidation integration; reduce to Medium for documentation/build work.
+- **S21-CAM-002 — SOURCE DONE / SOFTWARE-TESTED 2026-10-20; B029201 HARDWARE TEST PENDING.** Objective: add in-program camera-control profiles while preserving **Camera driver settings…** as the compatibility fallback. Result: v0.5.0 now has explicit raw-value controls for the monitored writable properties, versioned named JSON save/load, camera-thread apply/read-back, applied/substituted/refused/unreported results, geometry/background invalidation through the existing safety path, and profile/apply diagnostics plus guided tests. No generic ranges are invented and loading a profile never silently applies it. Verification: 18 targeted camera/profile/UI tests and full 108-test suite passed; deterministic self-test and Qt smoke passed. Physical B029201 support remains unverified. **Setting:** High reasoning.
+- **S21-CAM-003 — AUTHORIZED / PENDING S21-CAM-002 CHECKPOINT.** Objective: build the first v0.5.0 Windows package in a new versioned output folder, run packaged self-test/Qt smoke/hash checks, and preserve v0.4.0 artifacts unchanged. **Done when:** source and packaged verification pass, hashes/recovery documentation are recorded, and no private scan/diagnostic/calibration data enter Git. This still does not establish B029201 hardware verification. **Setting:** Medium reasoning.
 
 **Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. Complete and verify the authorized camera-profile task before packaging; afterward, B029201 mode/control behavior and the corrected corner calibration require physical evidence. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
 
-## v0.5.0 camera-mode development checkpoint — 2026-10-20
+## v0.5.0 camera-mode and profile development checkpoint — 2026-10-20
 
 The user replaced the Logitech camera with an Arducam B029201 8MP IMX219 UVC
 camera and authorized higher resolution/frame-rate support plus integrated camera
@@ -82,7 +83,22 @@ actual values, mismatches/unverified fields, and final accepted/substituted/
 unverified outcome in `camera_mode_negotiated`; no request alone is treated as
 proof. Existing calibration/background invalidation behavior is preserved.
 
-Verification passed: targeted camera/UI tests `11 passed`; full suite `101
+`S21-CAM-002` adds a versioned `laserline3d.camera-profile` JSON model and atomic
+save/load. The camera page exposes raw numeric fields only for the existing
+measurement-relevant writable controls, with explicit selection rather than
+generic camera-independent sliders. Profiles store the requested mode and only
+the selected controls. Loading restores form values but never reconnects or
+applies controls without a separate user action.
+
+Selected controls are queued to the camera thread, applied individually and
+read back immediately. The UI and diagnostics distinguish applied,
+matched-despite-refusal, substituted, refused and unreported outcomes. Actual
+read-back flows through the established safety path: exposure/gain/color changes
+invalidate the laser-off background, while focus/autofocus/zoom changes also
+invalidate lens and corner calibration. The native driver dialog remains the
+compatibility fallback.
+
+Verification passed: targeted camera/profile/UI tests `18 passed`; full suite `108
 passed`; deterministic synthetic self-test passed with 24 accepted frames, 4,316
 points, 8,334 triangles and 1.4491 mm median synthetic depth error; v0.5.0 Qt
 smoke passed with seven workflow pages and both printables. This is a
@@ -90,12 +106,10 @@ smoke passed with seven workflow pages and both printables. This is a
 and the B029201 must physically prove each mode because OpenCV cannot reliably
 enumerate all UVC capabilities in advance.
 
-Next exact task is `S21-CAM-002`: explicit in-app camera-property controls and
-named JSON profiles with apply/read-back mismatch evidence, while retaining the
-native driver dialog. Focus/autofocus/zoom changes must invalidate both geometric
-calibrations; exposure/gain/color changes must invalidate the laser background;
-unsupported or refused properties must remain visible rather than silently
-claimed applied.
+Next exact task is `S21-CAM-003`: build/package v0.5.0 in a new output folder and
+verify the packaged executable without overwriting v0.4.0. After that, physically
+test the B029201 mode negotiation and each selected control, then create entirely
+new lens/corner/background calibration evidence for the new camera.
 
 ## v0.4.0 physical evidence comparison — 2026-10-15
 

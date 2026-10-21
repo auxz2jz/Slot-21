@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 import laserline3d.ui.main_window as main_window_module
+from laserline3d.camera import BACKENDS, CameraRequest
 from laserline3d.diagnostics import DiagnosticLog
 from laserline3d.ui.main_window import MainWindow
 from laserline3d.ui.pages import CameraPage, LaserTunePage, RigCalibrationPage, ScanPage
@@ -653,7 +654,7 @@ def test_laser_tuning_has_numbers_defaults_and_auto_suggest_action(qtbot) -> Non
     ) == (120, 45, 55)
 
 
-def test_camera_page_reports_raw_controls_without_generic_sliders(qtbot) -> None:
+def test_camera_page_reports_raw_controls_and_applies_explicit_values(qtbot) -> None:
     page = CameraPage()
     qtbot.addWidget(page)
     assert not page.settings_button.isEnabled()
@@ -669,6 +670,38 @@ def test_camera_page_reports_raw_controls_without_generic_sliders(qtbot) -> None
     assert page.settings_button.isEnabled()
     assert "Autofocus: 0" in page.properties.value.text()
     assert "Exposure: -6" in page.properties.value.text()
+    assert not page.property_checks["Exposure"].isChecked()
+    page.property_checks["Exposure"].setChecked(True)
+    page.property_values["Exposure"].setText("-7")
+    requested: list[dict[str, float]] = []
+    page.apply_properties_requested.connect(requested.append)
+    page.apply_controls_button.click()
+    assert requested == [{"Exposure": -7.0}]
+
+
+def test_camera_page_loads_profile_without_applying_it(qtbot) -> None:
+    page = CameraPage()
+    qtbot.addWidget(page)
+    applied: list[dict[str, float]] = []
+    page.apply_properties_requested.connect(applied.append)
+
+    page.set_camera_profile(
+        "High resolution",
+        CameraRequest(
+            index=1,
+            backend=BACKENDS["DirectShow (recommended)"],
+            width=3264,
+            height=2448,
+            fps=15.0,
+            pixel_format="MJPG",
+        ),
+        {"Autofocus": 0.0, "Exposure": -7.0},
+    )
+
+    assert applied == []
+    assert page.current_camera_request().width == 3264
+    assert page.current_camera_request().fps == 15.0
+    assert page.selected_property_values() == {"Autofocus": 0.0, "Exposure": -7.0}
 
 
 def test_camera_page_requests_high_resolution_mjpeg_and_warns_on_substitution(qtbot) -> None:
@@ -771,6 +804,58 @@ def test_camera_property_change_cancels_partial_background_and_corner_only_calib
     assert window._background_sum is None
     assert window._background_remaining == 0
     assert window.corner_calibration is None
+    window.close()
+
+
+def test_in_program_camera_apply_readback_uses_existing_invalidation_path(
+    qtbot, tmp_path: Path, monkeypatch
+) -> None:
+    diagnostics = DiagnosticLog(tmp_path / "diagnostics")
+    window = MainWindow(diagnostics)
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_error", lambda *_args: None)
+    window.camera_details = {
+        "properties": {"Focus": 10.0, "Exposure": -5.0},
+    }
+    window._last_camera_details = dict(window.camera_details)
+    window.camera_calibration = CameraCalibration(
+        camera_matrix=np.eye(3), distortion=np.zeros(5), image_size=(1280, 720), rms_error=0.2
+    )
+    window.corner_calibration = object()  # type: ignore[assignment]
+    window.background = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    window.on_camera_properties_applied(
+        {
+            "operation_id": "test-operation",
+            "result": "partial",
+            "requested_count": 2,
+            "results": {
+                "Focus": {
+                    "requested": 11.0,
+                    "actual": 11.0,
+                    "set_returned": True,
+                    "matches": True,
+                    "status": "applied",
+                },
+                "Exposure": {
+                    "requested": -7.0,
+                    "actual": -6.0,
+                    "set_returned": True,
+                    "matches": False,
+                    "status": "substituted",
+                },
+            },
+            "properties": {"Focus": 11.0, "Exposure": -6.0},
+        }
+    )
+
+    assert window.camera_calibration is None
+    assert window.corner_calibration is None
+    assert window.background is None
+    assert "substituted" in window.camera_page.profile_status.value.text()
+    log = diagnostics.path.read_text(encoding="utf-8")
+    assert '"event":"camera_properties_apply_completed"' in log
+    assert '"snapshot_context":"in_program_control_apply_readback"' in log
     window.close()
 
 

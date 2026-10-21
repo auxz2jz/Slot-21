@@ -1,8 +1,8 @@
 # Verification and hardware test plan
 
-## Test This Version — Windows candidate 0.4.0
+## Test This Version — Windows candidate 0.5.0
 
-This is the guided user test for the exact 0.4.0 candidate. It is not a claim
+This is the guided user test for the 0.5.0 development candidate. It is not a claim
 that the camera/laser hardware is already verified. Use a freshly extracted
 release folder; never merge it into an older `_internal` folder. Keep the
 fixture, camera, focus/zoom, room lighting, and object stationary unless a step
@@ -36,7 +36,7 @@ sharing it. Do not repeat a failing setup many times without reviewing evidence.
    no old still frame is treated as live, and any saved laser-off background is
    marked for recapture. If camera identity, resolution, focus, autofocus, or
    zoom changed, lens/corner calibration must be invalidated rather than reused.
-4. **Camera controls — no scan required.** Press **Camera driver settings…**,
+4. **Camera controls and profiles — no scan required.** Press **Camera driver settings…**,
    disable automatic focus/exposure/white balance when available, lower
    exposure/gain enough to keep the laser narrow, close the driver window, then
    press **Refresh reported values**. Expected: raw values update; changing a
@@ -45,7 +45,17 @@ sharing it. Do not repeat a failing setup many times without reviewing evidence.
    exposure, gain, brightness, contrast, saturation, hue, gamma, sharpness,
    backlight, focus, white balance, zoom, FourCC, buffer and any available
    temperature/iris values are timestamped with support caveats. A changing
-   sensor-temperature reading alone must not invalidate the background.
+   sensor-temperature reading alone must not invalidate the background. Next,
+   select only **Exposure** and **Gain** in the in-program profile, enter the
+   driver's reported raw values, and press **Apply selected controls**. Expected:
+   each requested value shows its actual read-back as applied, substituted,
+   refused, or unreported; no generic range is assumed. Save the named JSON
+   profile, change both form values, load it again, and verify loading restores
+   the requested mode/control fields but does not silently apply or reconnect.
+   Apply after loading and verify a changed exposure/gain invalidates the
+   laser-off background. Separately apply a changed focus/autofocus/zoom value
+   only if safe for this test; it must invalidate lens and corner calibration.
+   **Camera driver settings…** must remain available as the fallback.
 5. **Lens calibration.** Capture at least 12 varied checkerboard views and press
    **Calculate and save calibration**. Expected: accepted-view count increases
    only for detected boards and the result reports reprojection error. Human

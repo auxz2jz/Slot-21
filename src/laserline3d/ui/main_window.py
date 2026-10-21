@@ -37,6 +37,11 @@ from ..calibration import (
     save_corner_calibration,
 )
 from ..camera import CameraRequest, CameraWorker, describe_camera_properties
+from ..camera_profiles import (
+    CameraProfile,
+    load_camera_profile,
+    save_camera_profile,
+)
 from ..diagnostics import DiagnosticLog, frame_statistics
 from ..exporters import (
     export_binary_stl,
@@ -229,6 +234,15 @@ class MainWindow(QMainWindow):
         self.camera_page.native_settings_requested.connect(self.open_native_camera_settings)
         self.camera_page.refresh_properties_requested.connect(
             self.refresh_camera_properties
+        )
+        self.camera_page.apply_properties_requested.connect(
+            self.apply_camera_properties
+        )
+        self.camera_page.save_profile_requested.connect(
+            self.save_camera_profile_dialog
+        )
+        self.camera_page.load_profile_requested.connect(
+            self.load_camera_profile_dialog
         )
         self.lens_page.capture_requested.connect(self.capture_calibration_view)
         self.lens_page.reset_requested.connect(self.reset_calibration_views)
@@ -690,6 +704,7 @@ class MainWindow(QMainWindow):
         worker.frame_ready.connect(self.on_camera_frame)
         worker.camera_opened.connect(self.on_camera_opened)
         worker.properties_reported.connect(self.on_camera_properties_reported)
+        worker.properties_applied.connect(self.on_camera_properties_applied)
         worker.camera_error.connect(self.on_camera_error)
         worker.camera_closed.connect(self.on_camera_closed)
         self.camera_worker = worker
@@ -865,6 +880,135 @@ class MainWindow(QMainWindow):
             self._error("Camera not connected", "Connect the camera first.")
             return
         self._request_camera_snapshot("manual_refresh")
+
+    def apply_camera_properties(self, properties: object) -> None:
+        if self.camera_worker is None:
+            self._error("Camera not connected", "Connect the camera before applying controls.")
+            return
+        requested = dict(properties) if isinstance(properties, dict) else {}
+        if not requested:
+            self._error("No controls selected", "Select at least one camera control to apply.")
+            return
+        operation_id = uuid.uuid4().hex
+        self.camera_worker.apply_camera_properties(operation_id, requested)
+        self.diagnostics.event(
+            "camera_properties_apply_requested",
+            action="Apply selected in-program camera controls",
+            request="Set camera driver properties and read each value back",
+            state="pending_driver_readback",
+            result="requested",
+            operation_id=operation_id,
+            properties=requested,
+        )
+
+    def on_camera_properties_applied(self, payload: object) -> None:
+        if not self._current_camera_signal():
+            return
+        report = dict(payload) if isinstance(payload, dict) else {}
+        properties = report.get("properties")
+        if isinstance(properties, dict):
+            self._camera_snapshot_pending = "in_program_control_apply_readback"
+            self.on_camera_properties_reported(properties)
+        self.camera_page.set_property_apply_result(report)
+        results = report.get("results")
+        result = str(report.get("result", "failed"))
+        self.diagnostics.event(
+            "camera_properties_apply_completed",
+            action="Read back in-program camera controls",
+            state="camera_ready",
+            result=result,
+            operation_id=report.get("operation_id"),
+            requested_count=report.get("requested_count"),
+            property_results=results if isinstance(results, dict) else {},
+        )
+
+    def save_camera_profile_dialog(self, payload: object) -> None:
+        data = dict(payload) if isinstance(payload, dict) else {}
+        try:
+            profile = CameraProfile(
+                name=str(data.get("name", "")),
+                camera=self.camera_page.current_camera_request(),
+                properties=dict(data.get("properties", {})),
+            )
+            profile.validate()
+        except (TypeError, ValueError) as error:
+            self._error("Could not prepare camera profile", str(error))
+            return
+        path_text, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save camera control profile",
+            str(self.app_data_directory() / "camera_profiles" / "camera_profile.json"),
+            "Camera profile JSON (*.json)",
+        )
+        if not path_text:
+            self.diagnostics.event(
+                "camera_profile_save_cancelled", action="Save camera profile", result="cancelled"
+            )
+            return
+        try:
+            save_camera_profile(Path(path_text), profile)
+        except Exception as error:
+            self._error("Could not save camera profile", str(error))
+            self.diagnostics.event(
+                "camera_profile_save_failed",
+                action="Save camera profile",
+                result="failed",
+                failure=error,
+            )
+            return
+        self.camera_page.profile_status.set_status(
+            f"Saved profile with {len(profile.properties)} selected controls.", "good"
+        )
+        self.diagnostics.event(
+            "camera_profile_saved",
+            action="Save camera profile",
+            state="profile_available",
+            result="ok",
+            schema_version=1,
+            property_names=sorted(profile.properties),
+            property_count=len(profile.properties),
+            camera_mode={
+                "index": profile.camera.index,
+                "backend": profile.camera.backend,
+                "resolution": [profile.camera.width, profile.camera.height],
+                "fps": profile.camera.fps,
+                "pixel_format": profile.camera.pixel_format or "driver_default",
+            },
+        )
+
+    def load_camera_profile_dialog(self) -> None:
+        path_text, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load camera control profile",
+            str(self.app_data_directory() / "camera_profiles"),
+            "Camera profile JSON (*.json)",
+        )
+        if not path_text:
+            return
+        try:
+            profile = load_camera_profile(Path(path_text))
+            self.camera_page.set_camera_profile(
+                profile.name, profile.camera, profile.properties
+            )
+        except Exception as error:
+            self._error("Could not load camera profile", str(error))
+            self.diagnostics.event(
+                "camera_profile_load_failed",
+                action="Load camera profile",
+                result="failed",
+                failure=error,
+            )
+            return
+        self.diagnostics.event(
+            "camera_profile_loaded",
+            action="Load camera profile",
+            state="loaded_not_applied",
+            result="ok",
+            connected=self.camera_worker is not None,
+            property_names=sorted(profile.properties),
+            property_count=len(profile.properties),
+            note="Loading changes form values only; mode requires connect/reconnect and controls require Apply",
+        )
 
     def on_camera_properties_reported(self, properties: object) -> None:
         if not self._current_camera_signal():
