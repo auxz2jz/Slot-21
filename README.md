@@ -50,13 +50,13 @@ the object in every accepted frame.
 
 ## Install and run from source
 
-A software-tested Windows 0.4.0 **candidate** is published at
-`dist/LaserLine3D_0.4.0/LaserLine3D.exe`. Keep the
+A software-tested Windows 0.5.0 **candidate** is published at
+`dist/LaserLine3D_0.5.0/LaserLine3D.exe`. Keep the
 complete `LaserLine3D` folder together; the executable depends on the adjacent
 `_internal` files. `run_scanner.bat` uses this packaged copy when it is present
 and falls back to the source environment only when no package exists.
 The clean distributable archive is
-`output/windows/LaserLine3D_Windows_0.4.0_2026-10-14.zip`; extract it into a new
+`output/windows/LaserLine3D_Windows_0.5.0_2026-10-20.zip`; extract it into a new
 folder rather than merging it over an older `_internal` directory.
 
 Version 0.4.0 adds isolated physical-test runs and a final validated ZIP that
@@ -68,12 +68,14 @@ claiming extra camera detail or dimensional accuracy; 10k/50k preview choices
 change only the display. Pressing Finish twice now preserves cleanup and mesh
 results. The compact troubleshooting ZIP remains separate and unchanged.
 
-The source tree is now the unreleased **0.5.0 development candidate**. Its first
-camera update adds high-resolution UVC presets through 3840 × 2160, requested
+Version 0.5.0 adds high-resolution UVC presets through 3840 × 2160, requested
 frame rates through 120 fps, MJPEG/YUY2/default transport selection, and
-requested-versus-actual mode read-back. The driver may substitute another mode;
-the reported mode—not the request—is the one that must be calibrated. The
-published 0.4.0 package remains preserved until 0.5.0 is fully tested and built.
+requested-versus-actual mode read-back. It also adds explicitly selected raw
+camera controls plus named JSON profiles. Every control apply is read back and
+shown as applied, substituted, refused, or unreported; loading a profile does
+not silently apply it. The driver may substitute another mode, so the reported
+mode—not the request—is the one that must be calibrated. The 0.4.0 package and
+its recorded hashes remain preserved as the prior software-tested candidate.
 
 If an older package reports `DLL load failed while importing QtCore`, discard
 that entire old package folder and use the newly built folder. Do not copy only

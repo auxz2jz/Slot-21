@@ -190,7 +190,9 @@ with no Python:
 2. launch `LaserLine3D.exe`;
 3. run the synthetic scan from the welcome page;
 4. export PLY, OBJ, and STL and open them in Blender/FreeCAD/OpenSCAD;
-5. connect the Logitech camera and verify DirectShow and Media Foundation;
+5. connect the Arducam B029201 and verify its requested/actual modes plus the
+   selected camera-control profile read-back through DirectShow (and Media
+   Foundation as a compatibility check);
 6. close/reopen the program and inspect `%LOCALAPPDATA%` diagnostics.
 7. complete a synthetic or small controlled scan, save the complete test ZIP,
    validate every entry, then start a second run and confirm run isolation.

@@ -50,7 +50,7 @@ of the ideas backlog only when planning user-approved features.
 
 **Canonical instructions:** [AGENTS.md](AGENTS.md) routes to the [Master Instruction Library](https://github.com/auxz2jz/master-instruction-library), particularly Core Recovery Section 16 and Codex Usage Efficiency Sections 20–26. These rules apply without being copied here. **Canonical current-state handoff:** [docs/CODEX_HANDOFF.md](docs/CODEX_HANDOFF.md). The queue below is the existing project's compact roadmap; do not create a parallel task registry.
 
-**Scope and verified-state protection:** Published **v0.4.0 remains software-tested and physically exercised, but full guided/accuracy verification is pending**. The user explicitly authorized new Arducam/high-resolution camera-mode and profile development on 2026-10-20; the source tree is now an unreleased **v0.5.0 development candidate**, not a published or user-verified replacement. Earlier v0.2.0 was user-tested, but the repository does not establish a **user-confirmed working/accuracy-verified version**; do not invent one. Preserve exact v0.4.0 source checkpoint `2e3cc262e69633894c55c61966302f940185dc2a` and its package/hash data below. Initial remote `main` before the atomic workflow change was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`. GitHub remote state does **not** prove another machine's uncommitted state; inspect local Git before editing.
+**Scope and verified-state protection:** Packaged **v0.5.0 is the latest software-tested candidate, but B029201 physical mode/control and accuracy verification are pending**. Published v0.4.0 remains preserved, software-tested and physically exercised, but it was not an accuracy-verified baseline. Earlier v0.2.0 was user-tested, but the repository does not establish a **user-confirmed working/accuracy-verified version**; do not invent one. Preserve exact v0.4.0 source checkpoint `2e3cc262e69633894c55c61966302f940185dc2a` and its package/hash data below. Initial remote `main` before the atomic workflow change was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`. GitHub remote state does **not** prove another machine's uncommitted state; inspect local Git before editing.
 
 Tasks below describe the next **existing authorized testing/recovery path**; items explicitly requiring hardware evidence or new development authorization must not be started automatically. All are bounded; break down any unexpectedly large task before working it. For every task record inputs/files, expected result, measurable completion, verification, backup, and next model setting in `docs/CODEX_HANDOFF.md`.
 
@@ -62,7 +62,8 @@ Tasks below describe the next **existing authorized testing/recovery path**; ite
 - **S21-AT-006 — DEFERRED, requires measured evidence and explicit development authorization.** Objective: choose one minimal, reversible depth-noise correction with targeted tests and original raw-cloud preservation. Inputs: S21-AT-005 findings and fresh authorization; files only those implicated by evidence. **Done when:** user-approved patch, relevant regression tests, checkpoint and handoff are verified; do **not** assume this task is approved today. **Setting:** High for nontrivial geometry; Medium for bounded filtering.
 - **S21-CAM-001 — DONE / SOFTWARE-TESTED 2026-10-20; B029201 HARDWARE TEST PENDING.** Objective: support the new Arducam B029201 and other high-resolution UVC cameras without guessing that a requested mode was accepted. Result: v0.5.0 source offers presets through 3840 × 2160 (including B029201 2592 × 1944 and 3264 × 2448), requested 1–120 fps, MJPEG/YUY2/default transport, format-first negotiation, actual resolution/FPS/FourCC read-back, explicit substituted/unverified warnings, and `camera_mode_negotiated` evidence. Verification: 11 targeted camera tests, full 101-test suite, deterministic self-test and v0.5.0 Qt smoke passed. No executable/package was built and no physical high-resolution mode is claimed verified. **Setting:** Medium reasoning.
 - **S21-CAM-002 — SOURCE DONE / SOFTWARE-TESTED 2026-10-20; B029201 HARDWARE TEST PENDING.** Objective: add in-program camera-control profiles while preserving **Camera driver settings…** as the compatibility fallback. Result: v0.5.0 now has explicit raw-value controls for the monitored writable properties, versioned named JSON save/load, camera-thread apply/read-back, applied/substituted/refused/unreported results, geometry/background invalidation through the existing safety path, and profile/apply diagnostics plus guided tests. No generic ranges are invented and loading a profile never silently applies it. Verification: 18 targeted camera/profile/UI tests and full 108-test suite passed; deterministic self-test and Qt smoke passed. Physical B029201 support remains unverified. **Setting:** High reasoning.
-- **S21-CAM-003 — AUTHORIZED / PENDING S21-CAM-002 CHECKPOINT.** Objective: build the first v0.5.0 Windows package in a new versioned output folder, run packaged self-test/Qt smoke/hash checks, and preserve v0.4.0 artifacts unchanged. **Done when:** source and packaged verification pass, hashes/recovery documentation are recorded, and no private scan/diagnostic/calibration data enter Git. This still does not establish B029201 hardware verification. **Setting:** Medium reasoning.
+- **S21-CAM-003 — DONE / SOFTWARE-TESTED 2026-10-20; HARDWARE TEST PENDING.** Objective: build the first v0.5.0 Windows package in a new versioned output folder, run packaged self-test/Qt smoke/hash checks, and preserve v0.4.0 artifacts unchanged. Result: `dist/LaserLine3D_0.5.0` and the validated release ZIP were created; source build tests, source self-test, packaged Qt smoke and packaged self-test passed; required OpenCV files and archive integrity were verified. The prior v0.4.0 EXE/ZIP hashes remain exact. This does not establish B029201 hardware verification. **Setting:** Medium reasoning.
+- **S21-CAM-004 — USER HARDWARE TEST REQUIRED / PENDING.** Objective: physically verify the B029201 mode negotiation and selected in-program controls before making a new calibration. Test DirectShow MJPEG at 3264 × 2448 / 15 fps and 1920 × 1080 / 30 fps; record actual width/height/FPS/FourCC and apply/read-back outcomes for autofocus/focus, auto exposure/exposure, gain and white balance. Preserve the native driver dialog fallback. **Done when:** a diagnostic ZIP shows which modes/controls the device actually honors and any substitution/refusal; no accuracy claim yet. **Setting:** Medium reasoning for evidence review.
 
 **Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. Complete and verify the authorized camera-profile task before packaging; afterward, B029201 mode/control behavior and the corrected corner calibration require physical evidence. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
 
@@ -101,15 +102,15 @@ compatibility fallback.
 Verification passed: targeted camera/profile/UI tests `18 passed`; full suite `108
 passed`; deterministic synthetic self-test passed with 24 accepted frames, 4,316
 points, 8,334 triangles and 1.4491 mm median synthetic depth error; v0.5.0 Qt
-smoke passed with seven workflow pages and both printables. This is a
-**software-tested development candidate only**. No 0.5.0 Windows package exists,
-and the B029201 must physically prove each mode because OpenCV cannot reliably
-enumerate all UVC capabilities in advance.
+smoke passed with seven workflow pages and both printables. `S21-CAM-003` then
+created and tested the versioned v0.5.0 Windows package and release ZIP described
+below. This is a **software-tested candidate only**; the B029201 must physically
+prove each mode because OpenCV cannot reliably enumerate all UVC capabilities in
+advance.
 
-Next exact task is `S21-CAM-003`: build/package v0.5.0 in a new output folder and
-verify the packaged executable without overwriting v0.4.0. After that, physically
-test the B029201 mode negotiation and each selected control, then create entirely
-new lens/corner/background calibration evidence for the new camera.
+Next exact task is `S21-CAM-004`: physically test B029201 mode negotiation and
+selected control read-back, save one compact diagnostic ZIP, and review that
+evidence before creating entirely new lens/corner/background calibration data.
 
 ## v0.4.0 physical evidence comparison — 2026-10-15
 
@@ -393,6 +394,45 @@ reported cleaner clouds. Absolute dimensional accuracy cannot be established
 without ground truth, and the 0.3.0 corner-pose reprojection errors (3.79 px and
 3.43 px) were worse than the 0.2.0 comparison (2.86 px), so calibration should
 be tightened before claiming sharper or more accurate geometry.
+
+## Software-tested 0.5.0 candidate baseline
+
+Build date: 2026-10-20 (America/Los_Angeles).
+
+- source checkpoint: `c58ae8aefbb06ac8d9fc189b6b374af0d569f0c9`
+- Python 3.12.14
+- NumPy 2.5.3
+- OpenCV 4.14.0.94 (headless runtime)
+- SciPy 1.18.1
+- PySide6 Essentials / Qt 6.12.0
+- PyInstaller 6.22.3 with hooks 2026.8
+- final build pipeline: 108/108 automated tests passed in 7.92 seconds
+- source/prebuild self-test passed: 24 accepted frames, 4,316 points, 8,334
+  triangles and 1.4491 mm median synthetic depth error
+- packaged Qt smoke passed: application version 0.5.0, real seven-page window,
+  Qt 6.12.0 and both printables present
+- packaged scan/export self-test exited 0; its PLY contains 4,316 vertices and
+  its binary STL contains 8,334 triangles
+- required `_internal/cv2/config.py` and `config-3.py` are present
+- published folder: `dist/LaserLine3D_0.5.0`
+- package: 346 files, 311,354,947 bytes
+- release ZIP:
+  `output/windows/LaserLine3D_Windows_0.5.0_2026-10-20.zip`
+- ZIP: 361 entries, 123,409,022 bytes; every entry passed decompression/CRC,
+  the archive has one `LaserLine3D_0.5.0` top-level folder, contains no unsafe
+  path and includes the required EXE/OpenCV configuration files
+- executable SHA-256:
+  `1244BD7A821622BB3C0F831A7953A5984DF2471A1951AE4D724162647CD8E065`
+- release ZIP SHA-256:
+  `AFEE6CEF79B66F4E6A37253850AFBFB22028E698E873830AC316892ABC9BAFB2`
+- the executable embedded in the ZIP has the same SHA-256 as the published EXE
+- preserved v0.4.0 EXE and release ZIP hashes were rechecked after publication
+  and remain unchanged
+
+This is a software-tested candidate, not a claim that the Arducam B029201 accepts
+the requested modes/controls or that physical scan accuracy improved. The next
+evidence gate is `S21-CAM-004` hardware mode/control read-back, followed by new
+camera, corner and background calibration for the new camera.
 
 ## Software-tested 0.4.0 candidate baseline
 

@@ -5,7 +5,7 @@
 - Repository: `https://github.com/auxz2jz/Slot-21`
 - Primary branch: `main`
 - Project: LaserLine3D, an independent Windows red laser-line 3D scanner
-- Latest candidate: 0.4.0, software tested and **physical hardware verification pending**
+- Latest candidate: 0.5.0, software tested and **B029201 physical hardware verification pending**
 
 This repository stores maintainable source, automated tests, project status,
 recovery instructions, hardware/testing guidance, packaging scripts, and
@@ -22,7 +22,15 @@ history. This prevents machine-specific or private diagnostic data from being
 published and avoids GitHub's ordinary per-file limit for the 123 MB release
 archive.
 
-The published, software-tested **0.4.0** candidate is identified in `PROJECT_STATUS.md`:
+The published, software-tested **0.5.0** candidate is identified in `PROJECT_STATUS.md`:
+
+- maintainable-source checkpoint: `c58ae8aefbb06ac8d9fc189b6b374af0d569f0c9`
+- versioned Windows package: `dist/LaserLine3D_0.5.0/`
+- release ZIP: `output/windows/LaserLine3D_Windows_0.5.0_2026-10-20.zip`
+- executable SHA-256: `1244BD7A821622BB3C0F831A7953A5984DF2471A1951AE4D724162647CD8E065`
+- release ZIP SHA-256: `AFEE6CEF79B66F4E6A37253850AFBFB22028E698E873830AC316892ABC9BAFB2`
+
+The preserved **0.4.0** candidate remains available locally:
 
 - maintainable-source checkpoint: `2e3cc262e69633894c55c61966302f940185dc2a`
 - versioned Windows package: `dist/LaserLine3D_0.4.0/`
@@ -49,8 +57,8 @@ The following are **historical 0.3.0** local recovery artifact identifiers (not 
 - local source recovery ZIP SHA-256:
   `78A578C9638F4B6C3EEFD94DC21FF8C3477BF64B3548368750A90FAFB337737D`
 
-The v0.2.0 and v0.3.0 field evidence is recorded in `PROJECT_STATUS.md` and
+The v0.2.0 through v0.4.0 field evidence is recorded in `PROJECT_STATUS.md` and
 `docs/FIELD_TEST_2026-10-13.md`, but it does not establish an accuracy-verified
-working baseline. Version 0.4.0 remains a candidate until the user completes
-the documented physical hardware test. Prior source/artifact identities must be
-preserved as historical recovery points.
+working baseline. Version 0.5.0 remains a candidate until the user completes
+the documented B029201 physical hardware test. Prior source/artifact identities
+must be preserved as historical recovery points.
