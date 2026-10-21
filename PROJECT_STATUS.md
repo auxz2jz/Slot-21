@@ -50,7 +50,7 @@ of the ideas backlog only when planning user-approved features.
 
 **Canonical instructions:** [AGENTS.md](AGENTS.md) routes to the [Master Instruction Library](https://github.com/auxz2jz/master-instruction-library), particularly Core Recovery Section 16 and Codex Usage Efficiency Sections 20–26. These rules apply without being copied here. **Canonical current-state handoff:** [docs/CODEX_HANDOFF.md](docs/CODEX_HANDOFF.md). The queue below is the existing project's compact roadmap; do not create a parallel task registry.
 
-**Scope and verified-state protection:** No new scanner behavior is authorized by this documentation change. Latest candidate **v0.4.0 = software-tested and physically exercised, but full guided/accuracy verification remains pending**. Earlier v0.2.0 was user-tested, but the repository does not establish a **user-confirmed working/accuracy-verified version**; do not invent one. Preserve exact source checkpoint `2e3cc262e69633894c55c61966302f940185dc2a` and v0.4.0 package/hash data below. Initial remote `main` before this workflow change was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`. GitHub API exposes only committed remote state; it **does not show uncommitted work in the user's Windows checkout**. A local `git status --short --branch` is required before any future code edits.
+**Scope and verified-state protection:** Published **v0.4.0 remains software-tested and physically exercised, but full guided/accuracy verification is pending**. The user explicitly authorized new Arducam/high-resolution camera-mode and profile development on 2026-10-20; the source tree is now an unreleased **v0.5.0 development candidate**, not a published or user-verified replacement. Earlier v0.2.0 was user-tested, but the repository does not establish a **user-confirmed working/accuracy-verified version**; do not invent one. Preserve exact v0.4.0 source checkpoint `2e3cc262e69633894c55c61966302f940185dc2a` and its package/hash data below. Initial remote `main` before the atomic workflow change was `d8b63d81e633b206a9a9f3fa89b023dc47b10a4d`. GitHub remote state does **not** prove another machine's uncommitted state; inspect local Git before editing.
 
 Tasks below describe the next **existing authorized testing/recovery path**; items explicitly requiring hardware evidence or new development authorization must not be started automatically. All are bounded; break down any unexpectedly large task before working it. For every task record inputs/files, expected result, measurable completion, verification, backup, and next model setting in `docs/CODEX_HANDOFF.md`.
 
@@ -60,8 +60,42 @@ Tasks below describe the next **existing authorized testing/recovery path**; ite
 - **S21-AT-004 — PARTIAL / REPEAT REQUIRED after 2026-10-17 smaller-target attempt.** Objective: one reproducible matte-flat-object laser sweep with unchanged optics/lighting and a complete-run ZIP. The smaller target materially improved two-wall support and produced a much flatter isolated target cloud, but the corner solve remained `9.45 px` and both scan attempts again started through readiness overrides. The package omitted scene images, so target size/material/placement cannot be visually confirmed. Preserve it as promising but provisional evidence, not an accuracy baseline. **Done when:** a smaller-target run starts only after five stable Good previews, without override, with practical corner error near the recommended `≤2 px`; **verify:** bundle manifest, opted-in scene image and usable raw target points. **Setting:** Medium.
 - **S21-AT-005 — PARTIAL / PROVISIONAL; final diagnosis blocked by repeated S21-AT-004.** Objective: quantify signed point-to-best-fit-plane deviations (RMS, MAD, p95/p99), profile banding vs spikes, raw/cleaned/mesh differences; do not equate pixel density with accuracy. The isolated 2026-10-17 target is substantially flatter than the confounded large-board attempt, but the `9.45 px` pose error prevents attributing the remaining approximately `1 mm` RMS to scanner depth noise. **Done when:** the same reproducible calculation is applied to an accepted, no-override smaller-target run and suspected error sources are recorded with uncertainty. **Setting:** High reasoning if geometric interpretation is difficult; otherwise Medium.
 - **S21-AT-006 — DEFERRED, requires measured evidence and explicit development authorization.** Objective: choose one minimal, reversible depth-noise correction with targeted tests and original raw-cloud preservation. Inputs: S21-AT-005 findings and fresh authorization; files only those implicated by evidence. **Done when:** user-approved patch, relevant regression tests, checkpoint and handoff are verified; do **not** assume this task is approved today. **Setting:** High for nontrivial geometry; Medium for bounded filtering.
+- **S21-CAM-001 — DONE / SOFTWARE-TESTED 2026-10-20; B029201 HARDWARE TEST PENDING.** Objective: support the new Arducam B029201 and other high-resolution UVC cameras without guessing that a requested mode was accepted. Result: v0.5.0 source offers presets through 3840 × 2160 (including B029201 2592 × 1944 and 3264 × 2448), requested 1–120 fps, MJPEG/YUY2/default transport, format-first negotiation, actual resolution/FPS/FourCC read-back, explicit substituted/unverified warnings, and `camera_mode_negotiated` evidence. Verification: 11 targeted camera tests, full 101-test suite, deterministic self-test and v0.5.0 Qt smoke passed. No executable/package was built and no physical high-resolution mode is claimed verified. **Setting:** Medium reasoning.
+- **S21-CAM-002 — AUTHORIZED / PENDING S21-CAM-001.** Objective: add in-program camera-control profiles while preserving **Camera driver settings…** as the compatibility fallback. Expected output: explicit supported-property apply/read-back, named JSON save/load, failure/mismatch reporting, geometry/background invalidation, diagnostics, privacy-safe export evidence, and guided tests. Do not invent generic ranges or claim unsupported controls; the camera/driver remains authoritative. **Done when:** profile round-trip and apply/read-back tests pass and the B029201 physical test confirms which controls it honors. **Setting:** High reasoning for driver-state/invalidation integration; reduce to Medium for documentation/build work.
 
-**Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. The next evidence step requires the user's physical scanner and a flat matte target; do not make a speculative source change while waiting. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
+**Cadence and halt gates:** checkpoint after each verified task, before risky/expensive work, and periodically during long sessions; never upload secrets or user diagnostic content. When **usage telemetry is unknown**, do not invent a percentage; end after at most two small tasks or one expensive task, save the handoff, and stop before a costly follow-up. Complete and verify the authorized camera-profile task before packaging; afterward, B029201 mode/control behavior and the corrected corner calibration require physical evidence. Incomplete work stays PARTIAL/BLOCKED, never VERIFIED.
+
+## v0.5.0 camera-mode development checkpoint — 2026-10-20
+
+The user replaced the Logitech camera with an Arducam B029201 8MP IMX219 UVC
+camera and authorized higher resolution/frame-rate support plus integrated camera
+profiles. `S21-CAM-001` is complete in source: the camera page now includes
+640 × 480 through 3840 × 2160 presets, including the B029201's published
+2592 × 1944 and 3264 × 2448 streaming modes; requested frame rates span 1–120;
+and users can request MJPEG, YUY2, or the driver default. The worker applies
+FourCC before dimensions/FPS so USB 2.0 high-resolution MJPEG modes have a fair
+chance to negotiate, then reads back actual width, height, FPS and FourCC.
+
+The UI warns when the backend substitutes a mode or leaves FPS/FourCC unreported.
+Diagnostics separately preserve the request, individual property-set returns,
+actual values, mismatches/unverified fields, and final accepted/substituted/
+unverified outcome in `camera_mode_negotiated`; no request alone is treated as
+proof. Existing calibration/background invalidation behavior is preserved.
+
+Verification passed: targeted camera/UI tests `11 passed`; full suite `101
+passed`; deterministic synthetic self-test passed with 24 accepted frames, 4,316
+points, 8,334 triangles and 1.4491 mm median synthetic depth error; v0.5.0 Qt
+smoke passed with seven workflow pages and both printables. This is a
+**software-tested development candidate only**. No 0.5.0 Windows package exists,
+and the B029201 must physically prove each mode because OpenCV cannot reliably
+enumerate all UVC capabilities in advance.
+
+Next exact task is `S21-CAM-002`: explicit in-app camera-property controls and
+named JSON profiles with apply/read-back mismatch evidence, while retaining the
+native driver dialog. Focus/autofocus/zoom changes must invalidate both geometric
+calibrations; exposure/gain/color changes must invalidate the laser background;
+unsupported or refused properties must remain visible rather than silently
+claimed applied.
 
 ## v0.4.0 physical evidence comparison — 2026-10-15
 

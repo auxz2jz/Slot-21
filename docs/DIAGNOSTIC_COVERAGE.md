@@ -1,12 +1,13 @@
 # Diagnostic coverage map
 
-This map describes the controls and background work in LaserLine 3D 0.4.0. A
+This map describes the controls and background work in the LaserLine 3D 0.5.0
+development candidate. A
 button press is recorded as a request; a separate state/result event or
 validated output is required before the operation is treated as successful.
 
 | Feature / trigger | Request and progress evidence | Success evidence | Failure / rejection evidence | Guided check |
 |---|---|---|---|---|
-| Connect or disconnect camera | requested index, backend, resolution; camera generation; opened details; raw property snapshot | `camera_opened` with actual backend/resolution; `camera_disconnected` or `camera_closed` | `camera_failure`, stop timeout, stale callbacks ignored | Connect, observe live frames, disconnect, reconnect |
+| Connect or disconnect camera | requested index, backend, resolution, FPS and MJPEG/YUY2/default transport; per-property set results; camera generation; opened details; raw property snapshot | `camera_mode_negotiated` with requested/actual mode and `camera_opened` with actual backend/resolution/FPS/FourCC; `camera_disconnected` or `camera_closed` | explicit substituted-mode mismatch, `camera_failure`, stop timeout, stale callbacks ignored | Test high-resolution MJPEG and 1080p modes, verify actual read-back/warning, observe live frames, disconnect, reconnect |
 | Camera driver settings / refresh | automatic snapshots at open, native settings, background, scan, pause/finish and export; raw values plus property IDs/support caveats | `camera_properties_reported`; appearance/geometric invalidation flags | camera failure, unavailable, or ambiguous zero/unsupported values | Change exposure; refresh; verify background is invalidated; sensor-temperature-only change must not invalidate it |
 | Lens calibration | captured-view count and calibration request | saved calibration, accepted views, reprojection error | calibration exception or invalid input | Capture 12+ varied views and calculate |
 | Corner calibration and object area | frozen frame, exact six marks, undo/reset, zoom anchor/pan/final view, solve request, fresh object frame, ROI | pose error, landmarks and saved setup | solve/save/load failure | Verify wheel zoom stays under the pointer and left-drag pans without dropping a mark |

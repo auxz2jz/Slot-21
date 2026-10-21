@@ -26,12 +26,16 @@ sharing it. Do not repeat a failing setup many times without reviewing evidence.
    physical setup. Expected: scan/review data reset, while reusable calibration
    and an unchanged background remain available; a run with unsaved scan data
    must warn before it is abandoned.
-3. **Camera connect/reconnect — no scan required.** Select the intended backend
-   and resolution, press **Connect**, verify moving live video, then
-   **Disconnect** and reconnect. Expected: no old still frame is treated as
-   live, and any saved laser-off background is marked for recapture. If camera
-   identity, resolution, focus, autofocus, or zoom changed, lens/corner
-   calibration must be invalidated rather than silently reused.
+3. **Camera connect/reconnect — no scan required.** Select the intended backend,
+   resolution, requested frame rate and USB video format, then press **Connect**.
+   For the Arducam B029201, first test MJPEG at 3264 × 2448 / 15 fps, then
+   MJPEG at 1920 × 1080 / 30 fps. Verify moving live video and compare the
+   reported actual resolution/rate/FourCC with the request. A substituted mode
+   must be shown as a warning and recorded as `camera_mode_negotiated`, never
+   silently treated as accepted. Then **Disconnect** and reconnect. Expected:
+   no old still frame is treated as live, and any saved laser-off background is
+   marked for recapture. If camera identity, resolution, focus, autofocus, or
+   zoom changed, lens/corner calibration must be invalidated rather than reused.
 4. **Camera controls — no scan required.** Press **Camera driver settings…**,
    disable automatic focus/exposure/white balance when available, lower
    exposure/gain enough to keep the laser narrow, close the driver window, then

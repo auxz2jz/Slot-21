@@ -68,6 +68,13 @@ claiming extra camera detail or dimensional accuracy; 10k/50k preview choices
 change only the display. Pressing Finish twice now preserves cleanup and mesh
 results. The compact troubleshooting ZIP remains separate and unchanged.
 
+The source tree is now the unreleased **0.5.0 development candidate**. Its first
+camera update adds high-resolution UVC presets through 3840 × 2160, requested
+frame rates through 120 fps, MJPEG/YUY2/default transport selection, and
+requested-versus-actual mode read-back. The driver may substitute another mode;
+the reported mode—not the request—is the one that must be calibrated. The
+published 0.4.0 package remains preserved until 0.5.0 is fully tested and built.
+
 If an older package reports `DLL load failed while importing QtCore`, discard
 that entire old package folder and use the newly built folder. Do not copy only
 the new `.exe` over old `_internal` files.
@@ -96,8 +103,10 @@ Run the hardware-independent verification suite with:
 1. **Test run** – the app starts an isolated run automatically. Press **Start
    new test run** before each additional controlled test; this clears scan data
    while keeping reusable calibration and the current background.
-2. **Camera** – select the Logitech camera, choose a resolution, lock camera
-   settings if the driver allows it, and do not change them after calibration.
+2. **Camera** – select the USB camera, resolution, requested frame rate and USB
+   video format. MJPEG is normally required for high resolution over USB 2.0.
+   Confirm the actual mode reported after connection, lock camera settings if
+   the driver allows it, and do not change them after calibration.
 3. **Camera lens calibration** – use the printed checkerboard in at least 12
    varied positions, distances, and tilts. Run calibration and save it.
 4. **Empty-corner setup** – remove the object, turn the laser off, enter the

@@ -26,6 +26,7 @@ class CameraRequest:
     width: int = 1280
     height: int = 720
     fps: float = 30.0
+    pixel_format: str | None = None
 
 
 class CameraWorker(QThread):
@@ -67,18 +68,45 @@ class CameraWorker(QThread):
                     f"Could not open camera {self.request.index}. Close other camera apps and try another backend."
                 )
                 return
-            capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.request.width)
-            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.request.height)
-            capture.set(cv2.CAP_PROP_FPS, self.request.fps)
+            set_results: dict[str, bool] = {}
+            if self.request.pixel_format:
+                set_results["pixel_format"] = bool(
+                    capture.set(
+                        cv2.CAP_PROP_FOURCC,
+                        cv2.VideoWriter_fourcc(*self.request.pixel_format),
+                    )
+                )
+            set_results["width"] = bool(
+                capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.request.width)
+            )
+            set_results["height"] = bool(
+                capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.request.height)
+            )
+            set_results["fps"] = bool(capture.set(cv2.CAP_PROP_FPS, self.request.fps))
             reported_properties = read_camera_properties(capture)
+            actual_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            actual_fps = float(capture.get(cv2.CAP_PROP_FPS))
+            actual_format = decode_fourcc(
+                float(reported_properties.get("Video FourCC") or 0.0)
+            )
             actual = {
                 "index": self.request.index,
                 "backend": capture.getBackendName() if hasattr(capture, "getBackendName") else str(self.request.backend),
-                "width": int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                "height": int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                "fps": float(capture.get(cv2.CAP_PROP_FPS)),
+                "width": actual_width,
+                "height": actual_height,
+                "fps": actual_fps,
+                "pixel_format": actual_format,
                 "properties": reported_properties,
                 "property_evidence": describe_camera_properties(reported_properties),
+                "mode_negotiation": assess_camera_mode(
+                    self.request,
+                    actual_width=actual_width,
+                    actual_height=actual_height,
+                    actual_fps=actual_fps,
+                    actual_format=actual_format,
+                    set_results=set_results,
+                ),
             }
             self.camera_opened.emit(actual)
             self.properties_reported.emit(reported_properties)
@@ -142,6 +170,65 @@ def camera_property_ids() -> dict[str, int]:
         "Zoom": cv2.CAP_PROP_ZOOM,
         "Video FourCC": cv2.CAP_PROP_FOURCC,
         "Capture buffer size": cv2.CAP_PROP_BUFFERSIZE,
+    }
+
+
+def assess_camera_mode(
+    request: CameraRequest,
+    *,
+    actual_width: int,
+    actual_height: int,
+    actual_fps: float,
+    actual_format: str | None,
+    set_results: dict[str, bool] | None = None,
+) -> dict[str, object]:
+    """Describe what the driver accepted without claiming unsupported modes.
+
+    UVC mode enumeration is not consistently exposed through OpenCV. The
+    reliable cross-camera check is to request a mode and read back the mode the
+    backend actually opened. Frame rates such as 29.97 are treated as matching
+    a 30 fps request.
+    """
+
+    mismatches: dict[str, dict[str, object]] = {}
+    unverified: list[str] = []
+    if (actual_width, actual_height) != (request.width, request.height):
+        mismatches["resolution"] = {
+            "requested": [int(request.width), int(request.height)],
+            "actual": [int(actual_width), int(actual_height)],
+        }
+    if math.isfinite(actual_fps) and actual_fps > 0:
+        tolerance = max(0.5, abs(float(request.fps)) * 0.03)
+        if abs(actual_fps - float(request.fps)) > tolerance:
+            mismatches["fps"] = {
+                "requested": float(request.fps),
+                "actual": float(actual_fps),
+            }
+    else:
+        unverified.append("fps")
+    if request.pixel_format:
+        if not actual_format:
+            unverified.append("pixel_format")
+        elif request.pixel_format != actual_format:
+            mismatches["pixel_format"] = {
+                "requested": request.pixel_format,
+                "actual": actual_format,
+            }
+    return {
+        "requested": {
+            "resolution": [int(request.width), int(request.height)],
+            "fps": float(request.fps),
+            "pixel_format": request.pixel_format or "driver_default",
+        },
+        "actual": {
+            "resolution": [int(actual_width), int(actual_height)],
+            "fps": float(actual_fps) if math.isfinite(actual_fps) else None,
+            "pixel_format": actual_format or "unreported",
+        },
+        "set_results": dict(set_results or {}),
+        "mismatches": mismatches,
+        "unverified": unverified,
+        "accepted": not mismatches and not unverified,
     }
 
 

@@ -682,6 +682,8 @@ class MainWindow(QMainWindow):
             camera_index=request.index,
             backend=request.backend,
             resolution=[request.width, request.height],
+            fps=request.fps,
+            pixel_format=request.pixel_format or "driver_default",
         )
         worker = CameraWorker(request)
         worker.camera_generation = self._camera_generation
@@ -797,6 +799,22 @@ class MainWindow(QMainWindow):
             "properties": safe_opened_properties,
         }
         self.camera_page.set_connected(self.camera_details)
+        negotiation = self.camera_details.get("mode_negotiation")
+        if isinstance(negotiation, dict):
+            mismatches = negotiation.get("mismatches")
+            unverified = negotiation.get("unverified")
+            result = "accepted"
+            if isinstance(mismatches, dict) and mismatches:
+                result = "substituted"
+            elif isinstance(unverified, list) and unverified:
+                result = "unverified"
+            self.diagnostics.event(
+                "camera_mode_negotiated",
+                request="Apply requested camera resolution, frame rate, and USB video format",
+                state="camera_ready",
+                result=result,
+                **negotiation,
+            )
         self.diagnostics.event(
             "camera_opened",
             state="camera_ready",

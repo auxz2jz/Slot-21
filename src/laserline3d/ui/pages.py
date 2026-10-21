@@ -36,6 +36,17 @@ from .widgets import (
 )
 
 
+CAMERA_RESOLUTIONS: tuple[tuple[str, tuple[int, int]], ...] = (
+    ("640 × 480", (640, 480)),
+    ("1280 × 720", (1280, 720)),
+    ("1920 × 1080", (1920, 1080)),
+    ("2560 × 1440", (2560, 1440)),
+    ("2592 × 1944", (2592, 1944)),
+    ("3264 × 2448", (3264, 2448)),
+    ("3840 × 2160", (3840, 2160)),
+)
+
+
 class WizardPage(QWidget):
     def __init__(self, title: str, description: str) -> None:
         super().__init__()
@@ -108,7 +119,7 @@ class CameraPage(WizardPage):
     def __init__(self) -> None:
         super().__init__(
             "1. Connect the camera",
-            "Mount the Logitech camera rigidly, frame both reference wings, and choose the highest stable resolution. "
+            "Mount the USB camera rigidly, frame both reference wings, and choose the highest stable resolution. "
             "Do not change focus, zoom, or resolution after lens calibration.",
         )
         camera_help = QLabel(
@@ -129,20 +140,27 @@ class CameraPage(WizardPage):
         self.backend = QComboBox()
         self.backend.addItems(BACKENDS.keys())
         self.resolution = QComboBox()
-        for label, size in [
-            ("640 × 480", (640, 480)),
-            ("1280 × 720", (1280, 720)),
-            ("1920 × 1080", (1920, 1080)),
-        ]:
+        for label, size in CAMERA_RESOLUTIONS:
             self.resolution.addItem(label, size)
         self.resolution.setCurrentIndex(1)
         self.fps = QSpinBox()
-        self.fps.setRange(5, 60)
+        self.fps.setRange(1, 120)
         self.fps.setValue(30)
+        self.fps.setToolTip(
+            "The driver may substitute a supported rate. The actual rate is shown after connection."
+        )
+        self.pixel_format = QComboBox()
+        self.pixel_format.addItem("MJPEG — high resolution (recommended)", "MJPG")
+        self.pixel_format.addItem("YUY2 — uncompressed", "YUY2")
+        self.pixel_format.addItem("Driver default", None)
+        self.pixel_format.setToolTip(
+            "USB 2.0 cameras commonly require MJPEG for their highest resolutions."
+        )
         form.addRow("Camera number", self.camera_index)
         form.addRow("Windows backend", self.backend)
         form.addRow("Resolution", self.resolution)
         form.addRow("Requested frame rate", self.fps)
+        form.addRow("USB video format", self.pixel_format)
         row = QHBoxLayout()
         self.connect_button = QPushButton("Connect")
         self.connect_button.setObjectName("primaryButton")
@@ -168,7 +186,7 @@ class CameraPage(WizardPage):
         settings_row.addWidget(self.refresh_properties)
         settings_row.addStretch()
         form.addRow(settings_row)
-        controls.setMaximumWidth(600)
+        controls.setMaximumWidth(740)
         self.status = StatusCard("Camera status")
         self.properties = StatusCard(
             "Raw controls reported by driver",
@@ -202,6 +220,7 @@ class CameraPage(WizardPage):
             width=width,
             height=height,
             fps=float(self.fps.value()),
+            pixel_format=self.pixel_format.currentData(),
         )
         self.connect_requested.emit(request)
 
@@ -210,11 +229,19 @@ class CameraPage(WizardPage):
         self.disconnect_button.setEnabled(True)
         self.settings_button.setEnabled(True)
         self.refresh_properties.setEnabled(True)
-        self.status.set_status(
+        pixel_format = details.get("pixel_format") or "format unreported"
+        message = (
             f"Connected through {details['backend']} at {details['width']} × {details['height']} "
-            f"({details['fps']:.1f} fps reported)",
-            "good",
+            f"({details['fps']:.1f} fps reported, {pixel_format})"
         )
+        negotiation = details.get("mode_negotiation")
+        mismatches = negotiation.get("mismatches") if isinstance(negotiation, dict) else None
+        unverified = negotiation.get("unverified") if isinstance(negotiation, dict) else None
+        if isinstance(mismatches, dict) and mismatches:
+            message += "\nThe driver substituted a different mode; use the reported values for calibration."
+        elif isinstance(unverified, list) and unverified:
+            message += "\nThe driver did not report every requested mode value; verify live behavior before calibration."
+        self.status.set_status(message, "warning" if mismatches or unverified else "good")
         reported = details.get("properties")
         if isinstance(reported, dict):
             self.set_reported_properties(reported)

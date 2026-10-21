@@ -671,6 +671,44 @@ def test_camera_page_reports_raw_controls_without_generic_sliders(qtbot) -> None
     assert "Exposure: -6" in page.properties.value.text()
 
 
+def test_camera_page_requests_high_resolution_mjpeg_and_warns_on_substitution(qtbot) -> None:
+    page = CameraPage()
+    qtbot.addWidget(page)
+    requests = []
+    page.connect_requested.connect(requests.append)
+
+    high_resolution = page.resolution.findText("3264 × 2448")
+    assert high_resolution >= 0
+    page.resolution.setCurrentIndex(high_resolution)
+    page.fps.setValue(15)
+    page.pixel_format.setCurrentIndex(page.pixel_format.findData("MJPG"))
+    page.connect_button.click()
+
+    assert len(requests) == 1
+    assert (requests[0].width, requests[0].height) == (3264, 2448)
+    assert requests[0].fps == 15.0
+    assert requests[0].pixel_format == "MJPG"
+
+    page.set_connected(
+        {
+            "backend": "DSHOW",
+            "width": 1920,
+            "height": 1080,
+            "fps": 30.0,
+            "pixel_format": "YUY2",
+            "mode_negotiation": {
+                "mismatches": {
+                    "resolution": {
+                        "requested": [3264, 2448],
+                        "actual": [1920, 1080],
+                    }
+                }
+            },
+        }
+    )
+    assert "driver substituted" in page.status.value.text().lower()
+
+
 def test_camera_reconnect_invalidates_changed_geometry_and_background(
     qtbot, tmp_path: Path, monkeypatch
 ) -> None:

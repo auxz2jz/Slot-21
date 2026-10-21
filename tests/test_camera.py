@@ -1,6 +1,8 @@
 import math
 
 from laserline3d.camera import (
+    CameraRequest,
+    assess_camera_mode,
     camera_property_ids,
     camera_property_value_status,
     decode_fourcc,
@@ -82,3 +84,53 @@ def test_camera_property_reader_keeps_failed_properties_as_unavailable() -> None
         assert "driver refused" in str(error)
     else:
         raise AssertionError("unexpected driver failures must propagate")
+
+
+def test_camera_mode_negotiation_accepts_normal_fractional_fps() -> None:
+    result = assess_camera_mode(
+        CameraRequest(width=3264, height=2448, fps=15.0, pixel_format="MJPG"),
+        actual_width=3264,
+        actual_height=2448,
+        actual_fps=14.985,
+        actual_format="MJPG",
+        set_results={"pixel_format": True, "width": True, "height": True, "fps": True},
+    )
+
+    assert result["accepted"] is True
+    assert result["mismatches"] == {}
+    assert result["unverified"] == []
+    assert result["actual"] == {
+        "resolution": [3264, 2448],
+        "fps": 14.985,
+        "pixel_format": "MJPG",
+    }
+
+
+def test_camera_mode_negotiation_reports_driver_substitution() -> None:
+    result = assess_camera_mode(
+        CameraRequest(width=3264, height=2448, fps=30.0, pixel_format="MJPG"),
+        actual_width=1920,
+        actual_height=1080,
+        actual_fps=30.0,
+        actual_format="YUY2",
+    )
+
+    assert result["accepted"] is False
+    assert result["mismatches"] == {
+        "resolution": {"requested": [3264, 2448], "actual": [1920, 1080]},
+        "pixel_format": {"requested": "MJPG", "actual": "YUY2"},
+    }
+
+
+def test_camera_mode_negotiation_does_not_claim_unreported_values() -> None:
+    result = assess_camera_mode(
+        CameraRequest(width=1920, height=1080, fps=30.0, pixel_format="MJPG"),
+        actual_width=1920,
+        actual_height=1080,
+        actual_fps=0.0,
+        actual_format=None,
+    )
+
+    assert result["accepted"] is False
+    assert result["mismatches"] == {}
+    assert result["unverified"] == ["fps", "pixel_format"]
